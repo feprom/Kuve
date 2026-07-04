@@ -36,7 +36,7 @@ export default function Dashboard() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [client, setClient] = useState<any>(null);
   const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
-  const [entryTs, setEntryTs] = useState<number | null>(null);
+  const [eqHist, setEqHist] = useState<{ ts: string; equity: number; start_equity: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,9 +54,9 @@ export default function Dashboard() {
             .eq("profile_id", c.risk_profile_id).order("date", { ascending: true })
             .then(({ data }) => setBench(data ?? []));
         }
-        sb.from("account_snapshots").select("ts").eq("client_id", c.id)
-          .order("ts", { ascending: true }).limit(1)
-          .then(({ data }) => setEntryTs(data?.[0] ? new Date(data[0].ts).getTime() : null));
+        sb.from("account_snapshots").select("ts, equity, start_equity").eq("client_id", c.id)
+          .order("ts", { ascending: true }).limit(5000)
+          .then(({ data }) => setEqHist(data ?? []));
         const [{ data: s }, { data: sig }] = await Promise.all([
           sb.from("account_snapshots").select("*")
             .eq("client_id", c.id).order("ts", { ascending: false }).limit(1),
@@ -92,11 +92,21 @@ export default function Dashboard() {
   const benchPct2 = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index - 100 }));
   const benchPct = benchPct2.length ? benchPct2[benchPct2.length - 1].y : null;
   const profName: string = client?.risk_profiles?.name ?? "";
+  const entryTs = eqHist.length ? new Date(eqHist[0].ts).getTime() : null;
+  // client's real curve anchored at the strategy's % on entry date (same as Rendimiento)
+  let clientPts: { x: number; y: number }[] = [];
+  const startEq = eqHist.length ? eqHist[eqHist.length - 1].start_equity : null;
+  if (entryTs != null && startEq) {
+    let anchor = 0;
+    for (const p of benchPct2) if (p.x <= entryTs) anchor = p.y;
+    clientPts = eqHist.map((s) => ({
+      x: new Date(s.ts).getTime(),
+      y: anchor + (s.equity / startEq - 1) * 100,
+    }));
+  }
   const stratSeries = [
-    { label: "Estrategia (antes de tu entrada)", color: "#3d996f", points: benchPct2 },
-    ...(entryTs != null
-      ? [{ label: "Desde tu entrada", color: "var(--accent)", points: benchPct2.filter((p) => p.x >= entryTs!) }]
-      : []),
+    { label: "Estrategia " + profName, color: "#3d996f", points: benchPct2 },
+    ...(clientPts.length > 1 ? [{ label: "Tu cuenta", color: "var(--accent)", points: clientPts }] : []),
   ].filter((s) => s.points.length > 1);
 
   return (
@@ -128,7 +138,7 @@ export default function Dashboard() {
               </h2>
               <PerfChart series={stratSeries} height={180}
                 markerX={entryTs} markerLabel="Tu entrada" />
-              <p className="note">Rendimiento simulado de la estrategia KV-9014 con tu perfil de riesgo en lo que va del año (eje en %, 0% = 1 de enero). La línea azul marca el tramo desde tu fecha de entrada.</p>
+              <p className="note">Verde: la estrategia KV-9014 con tu perfil en lo que va del año (eje en %, 0% = 1 de enero). Azul: tu cuenta real desde tu entrada, anclada al nivel de la estrategia en esa fecha.</p>
             </div>
           )}
 
