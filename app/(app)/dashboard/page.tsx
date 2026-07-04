@@ -5,7 +5,7 @@ import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Donut from "@/components/Donut";
 import TriggerGauge from "@/components/TriggerGauge";
 import AssetName from "@/components/AssetName";
-import LineChart from "@/components/LineChart";
+import PerfChart from "@/components/PerfChart";
 
 type Snap = {
   equity: number; wallet_balance: number; unrealized_pnl: number;
@@ -36,6 +36,7 @@ export default function Dashboard() {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [client, setClient] = useState<any>(null);
   const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
+  const [entryTs, setEntryTs] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,6 +54,9 @@ export default function Dashboard() {
             .eq("profile_id", c.risk_profile_id).order("date", { ascending: true })
             .then(({ data }) => setBench(data ?? []));
         }
+        sb.from("account_snapshots").select("ts").eq("client_id", c.id)
+          .order("ts", { ascending: true }).limit(1)
+          .then(({ data }) => setEntryTs(data?.[0] ? new Date(data[0].ts).getTime() : null));
         const [{ data: s }, { data: sig }] = await Promise.all([
           sb.from("account_snapshots").select("*")
             .eq("client_id", c.id).order("ts", { ascending: false }).limit(1),
@@ -85,13 +89,19 @@ export default function Dashboard() {
   const pending = signals.filter((s) => !openSyms.has(s.symbol))
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
 
-  const benchPoints = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index }));
-  const benchPct = benchPoints.length ? benchPoints[benchPoints.length - 1].y - 100 : null;
+  const benchPct2 = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index - 100 }));
+  const benchPct = benchPct2.length ? benchPct2[benchPct2.length - 1].y : null;
   const profName: string = client?.risk_profiles?.name ?? "";
+  const stratSeries = [
+    { label: "Estrategia (antes de tu entrada)", color: "#3d996f", points: benchPct2 },
+    ...(entryTs != null
+      ? [{ label: "Desde tu entrada", color: "var(--accent)", points: benchPct2.filter((p) => p.x >= entryTs!) }]
+      : []),
+  ].filter((s) => s.points.length > 1);
 
   return (
     <>
-      <div className="pagetitle">Resumen
+      <div className="pagetitle">{client?.name || "Resumen"}
         {client && <span className={`badge ${client.enabled ? "on" : "off"}`}>{client.enabled ? "ACTIVO" : "PARADO"}</span>}
       </div>
 
@@ -111,13 +121,14 @@ export default function Dashboard() {
             <div className="metric"><div className="v">{leverage == null ? "—" : `x${leverage.toFixed(2)}`}</div><div className="l">Apalancamiento en uso</div></div>
           </div>
 
-          {benchPoints.length > 1 && (
+          {stratSeries.length > 0 && (
             <div className="card">
               <h2>Tu estrategia · {profName} · desde 01/01
                 {benchPct != null && <span className={pnlClass(benchPct)} style={{ marginLeft: 8 }}>{fmtPct(benchPct)}</span>}
               </h2>
-              <LineChart points={benchPoints} baseline={100} color="var(--green)" height={160} />
-              <p className="note">Rendimiento simulado de la estrategia KV-9014 con tu perfil de riesgo en lo que va del año (índice 100 = 1 de enero). Tu cuenta sigue esta estrategia desde tu fecha de ingreso.</p>
+              <PerfChart series={stratSeries} height={180}
+                markerX={entryTs} markerLabel="Tu entrada" />
+              <p className="note">Rendimiento simulado de la estrategia KV-9014 con tu perfil de riesgo en lo que va del año (eje en %, 0% = 1 de enero). La línea azul marca el tramo desde tu fecha de entrada.</p>
             </div>
           )}
 

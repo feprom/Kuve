@@ -6,7 +6,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <Logo height={40} />
+          <Logo height={66} />
           <span className="tag" style={{ marginLeft: "auto" }}>KV-9014</span>
         </div>
       </header>

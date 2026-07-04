@@ -9,7 +9,7 @@ type Order = { id: number; ts: string; symbol: string; side: string; qty: number
 type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string };
 
 export default function History() {
-  const [tab, setTab] = useState<"trades" | "orders" | "strategy">("trades");
+  const [tab, setTab] = useState<"trades" | "orders">("trades");
   const [trades, setTrades] = useState<Trade[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
@@ -52,28 +52,43 @@ export default function History() {
   const forders = orders.filter((o) =>
     (fSymbol === "all" || o.symbol === fSymbol) && (fSide === "all" || o.side === fSide));
 
+  function exportCsv() {
+    const rows: string[][] = tab === "trades"
+      ? [["fecha", "activo", "operacion", "cantidad", "precio", "profit", "comision", "acumulado"],
+         ...ftrades.map((t) => [t.ts, t.symbol ?? "", t.side ?? "", String(t.qty ?? ""),
+           String(t.price ?? ""), String(t.profit ?? ""), String(t.commission ?? ""), String(t.cum ?? "")])]
+      : [["fecha", "activo", "lado", "cantidad", "reduce_only", "estado", "error"],
+         ...forders.map((o) => [o.ts, o.symbol, o.side, String(o.qty),
+           String(o.reduce_only), o.status, o.error ?? ""])];
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kuve_${tab}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <>
       <div className="pagetitle">Historial</div>
       <div className="tabs">
         <div className={`tab ${tab === "trades" ? "active" : ""}`} onClick={() => setTab("trades")}>Trades</div>
         <div className={`tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>Órdenes</div>
-        <div className={`tab ${tab === "strategy" ? "active" : ""}`} onClick={() => setTab("strategy")}>Estrategia</div>
       </div>
 
-      {tab !== "strategy" && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <select value={fSymbol} onChange={(e) => setFSymbol(e.target.value)}>
-            <option value="all">Todos los activos</option>
-            {symbols.map((s) => <option key={s} value={s}>{s.replace("USDT", "")}</option>)}
-          </select>
-          <select value={fSide} onChange={(e) => setFSide(e.target.value)}>
-            <option value="all">Compras y ventas</option>
-            <option value="BUY">Compras (BUY)</option>
-            <option value="SELL">Ventas (SELL)</option>
-          </select>
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <select value={fSymbol} onChange={(e) => setFSymbol(e.target.value)}>
+          <option value="all">Todos los activos</option>
+          {symbols.map((s) => <option key={s} value={s}>{s.replace("USDT", "")}</option>)}
+        </select>
+        <select value={fSide} onChange={(e) => setFSide(e.target.value)}>
+          <option value="all">Compras y ventas</option>
+          <option value="BUY">Compras (BUY)</option>
+          <option value="SELL">Ventas (SELL)</option>
+        </select>
+        <button className="btn-mini" onClick={exportCsv} title="Descargar CSV">⬇ CSV</button>
+      </div>
 
       {tab === "trades" && (
         <div className="card">
@@ -119,28 +134,6 @@ export default function History() {
         </div>
       )}
 
-      {tab === "strategy" && (
-        <div className="card">
-          <h2>Estado de la estrategia (última vela)</h2>
-          {signals.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin señales aún</div> : (
-            <table>
-              <thead><tr><th>Activo</th><th>Señal</th><th>Precio</th><th>Disparo L</th><th>Disparo C</th></tr></thead>
-              <tbody>
-                {signals.map((s) => (
-                  <tr key={s.symbol}>
-                    <td><AssetName symbol={s.symbol} price={s.price} /></td>
-                    <td className={s.side === 1 ? "pos" : s.side === -1 ? "neg" : "muted"}>{sideName(s.side)}</td>
-                    <td>{fmtUsd(s.price)}</td>
-                    <td>{fmtUsd(s.long_trigger)}</td>
-                    <td>{fmtUsd(s.short_trigger)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {signals[0] && <p className="note">Vela: {fmtDate(signals[0].bar_time)}</p>}
-        </div>
-      )}
     </>
   );
 }
