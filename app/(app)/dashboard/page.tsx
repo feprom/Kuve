@@ -4,6 +4,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Donut from "@/components/Donut";
 import TriggerGauge from "@/components/TriggerGauge";
+import AssetName from "@/components/AssetName";
 
 type Snap = {
   equity: number; wallet_balance: number; unrealized_pnl: number;
@@ -108,7 +109,7 @@ export default function Dashboard() {
                       : null;
                     return (
                       <tr key={p.symbol}>
-                        <td>{p.symbol.replace("USDT", "")}</td>
+                        <td><AssetName symbol={p.symbol} price={p.price} /></td>
                         <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
                         <td>{fmtUsd(notional, 0)}</td>
                         <td>{fmtUsd(p.entry_price)}</td>
@@ -131,7 +132,7 @@ export default function Dashboard() {
                 <tbody>
                   {pending.map((s) => (
                     <tr key={s.symbol}>
-                      <td>{s.symbol.replace("USDT", "")}</td>
+                      <td><AssetName symbol={s.symbol} price={s.price} /></td>
                       <td>{fmtUsd(s.price)}</td>
                       <td className="neg">{fmtUsd(s.short_trigger)}</td>
                       <td className="pos">{fmtUsd(s.long_trigger)}</td>
@@ -143,7 +144,7 @@ export default function Dashboard() {
             )}
             <p className="note">El punto indica dónde está el precio entre el disparo de venta (rojo) y el de compra (verde). Cerca de un extremo = ruptura próxima.</p>
             {signals[0] && (
-              <p className="note">Señales actualizadas: {fmtDate(signals[0].created_at ?? signals[0].bar_time)} (tu hora local) · vela {fmtDate(signals[0].bar_time)}</p>
+              <p className="note">Señales actualizadas: {fmtDate(signals[0].created_at ?? signals[0].bar_time)} (tu hora local)</p>
             )}
           </div>
 
@@ -152,7 +153,6 @@ export default function Dashboard() {
             <Donut slices={slices} />
           </div>
 
-          <p className="note">Última actualización: {fmtDate(snap.ts)} · vela {fmtDate(snap.bar_time)}</p>
         </>
       )}
     </>

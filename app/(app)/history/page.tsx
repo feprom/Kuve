@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtDate, pnlClass } from "@/lib/format";
+import AssetName from "@/components/AssetName";
 
 type Trade = { id: number; ts: string; symbol: string; side: string; tag: string; profit: number; commission: number; cum: number; qty: number | null; price: number | null };
 type Order = { id: number; ts: string; symbol: string; side: string; qty: number; status: string; reduce_only: boolean; error: string | null };
@@ -44,6 +45,8 @@ export default function History() {
 
   const symbols = Array.from(new Set([...trades.map((t) => t.symbol), ...orders.map((o) => o.symbol)]
     .filter(Boolean))).sort();
+  const lastPrice: Record<string, number> = Object.fromEntries(
+    signals.map((s) => [s.symbol, s.price]));
   const ftrades = trades.filter((t) =>
     (fSymbol === "all" || t.symbol === fSymbol) && (fSide === "all" || t.side === fSide));
   const forders = orders.filter((o) =>
@@ -82,7 +85,7 @@ export default function History() {
                 {ftrades.map((t) => (
                   <tr key={t.id}>
                     <td>{fmtDate(t.ts)}</td>
-                    <td>{t.symbol?.replace("USDT", "")}</td>
+                    <td>{t.symbol ? <AssetName symbol={t.symbol} price={lastPrice[t.symbol]} /> : "—"}</td>
                     <td>{t.side}</td>
                     <td className={pnlClass(t.profit)}>{fmtUsd(t.profit)}</td>
                     <td className={pnlClass(t.cum)}>{fmtUsd(t.cum)}</td>
@@ -104,7 +107,7 @@ export default function History() {
                 {forders.map((o) => (
                   <tr key={o.id} title={o.error ?? undefined}>
                     <td>{fmtDate(o.ts)}</td>
-                    <td>{o.symbol.replace("USDT", "")}</td>
+                    <td><AssetName symbol={o.symbol} price={lastPrice[o.symbol]} /></td>
                     <td className={o.side === "BUY" ? "pos" : "neg"}>{o.side}{o.reduce_only ? " (cierre)" : ""}</td>
                     <td>{o.qty}</td>
                     <td className={o.status === "filled" ? "pos" : o.status === "error" ? "neg" : "muted"}>{o.status}</td>
@@ -125,7 +128,7 @@ export default function History() {
               <tbody>
                 {signals.map((s) => (
                   <tr key={s.symbol}>
-                    <td>{s.symbol.replace("USDT", "")}</td>
+                    <td><AssetName symbol={s.symbol} price={s.price} /></td>
                     <td className={s.side === 1 ? "pos" : s.side === -1 ? "neg" : "muted"}>{sideName(s.side)}</td>
                     <td>{fmtUsd(s.price)}</td>
                     <td>{fmtUsd(s.long_trigger)}</td>
