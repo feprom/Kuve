@@ -4,7 +4,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
-type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
+type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
 type Snap = { client_id: string; ts: string; equity: number; start_equity: number; realized_cum: number; exposure_notional: number; open_positions: number; dd_pct: number };
 type Evt = { id: number; ts: string; client_id: string | null; kind: string; level: string; detail: any };
 
@@ -20,6 +20,17 @@ export default function Admin() {
   const [clients, setClients] = useState<Cli[]>([]);
   const [snaps, setSnaps] = useState<Map<string, Snap>>(new Map());
   const [events, setEvents] = useState<Evt[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function toggleClient(id: string, enabled: boolean) {
+    if (enabled && !confirm("¿Activar el bot para este cliente? Empezará a operar en la próxima vela.")) return;
+    if (!enabled && !confirm("¿Pausar este cliente? Sus posiciones se gestionarán según su modo de desactivación.")) return;
+    setBusyId(id);
+    const sb = supabaseBrowser();
+    const { error } = await sb.rpc("admin_toggle_client", { p_client_id: id, p_enabled: enabled });
+    if (error) alert(error.message);
+    location.reload();
+  }
 
   useEffect(() => {
     (async () => {
@@ -105,7 +116,7 @@ export default function Admin() {
         <h2>Usuarios ({clients.length})</h2>
         <div style={{ overflowX: "auto" }}>
           <table>
-            <thead><tr><th>Cliente</th><th>Perfil</th><th>Capital</th><th>PnL</th><th>%</th><th>Ingreso</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Cliente</th><th>Perfil</th><th>Capital</th><th>PnL</th><th>%</th><th>Ingreso</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {clients.map((c) => {
                 const s = snaps.get(c.id);
@@ -121,8 +132,20 @@ export default function Admin() {
                     <td>{new Date(c.created_at).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" })}</td>
                     <td>
                       <span className={`badge ${c.enabled ? "on" : "off"}`}>{c.enabled ? "ON" : "OFF"}</span>{" "}
+                      {c.activation_requested && !c.enabled && <span className="badge on">SOLICITA ALTA</span>}{" "}
                       {c.key_status !== "valid" && <span className="badge neutral">sin claves</span>}
                       {c.mode === "testnet" && <span className="badge neutral">testnet</span>}
+                    </td>
+                    <td>
+                      {c.enabled ? (
+                        <button className="btn-mini pause" disabled={busyId === c.id}
+                          onClick={() => toggleClient(c.id, false)}>⏸</button>
+                      ) : (
+                        <button className="btn-mini play"
+                          disabled={busyId === c.id || c.key_status !== "valid" || !c.risk_profile_id}
+                          title={c.key_status !== "valid" ? "Sin claves válidas" : !c.risk_profile_id ? "Sin perfil de riesgo" : "Activar"}
+                          onClick={() => toggleClient(c.id, true)}>▶</button>
+                      )}
                     </td>
                   </tr>
                 );

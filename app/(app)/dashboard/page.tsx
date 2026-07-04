@@ -5,6 +5,7 @@ import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Donut from "@/components/Donut";
 import TriggerGauge from "@/components/TriggerGauge";
 import AssetName from "@/components/AssetName";
+import LineChart from "@/components/LineChart";
 
 type Snap = {
   equity: number; wallet_balance: number; unrealized_pnl: number;
@@ -34,6 +35,7 @@ export default function Dashboard() {
   const [positions, setPositions] = useState<Pos[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [client, setClient] = useState<any>(null);
+  const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,11 +43,16 @@ export default function Dashboard() {
       const sb = supabaseBrowser();
       const { data: { user } } = await sb.auth.getUser();
       if (!user) return;
-      const { data: c } = await sb.from("clients").select("*, risk_profiles(atr_mult)")
+      const { data: c } = await sb.from("clients").select("*, risk_profiles(atr_mult, name)")
         .eq("auth_uid", user.id).single();
       setClient(c);
       if (c) {
         const variant = variantOf((c as any).risk_profiles?.atr_mult);
+        if (c.risk_profile_id) {
+          sb.from("strategy_benchmark").select("date, equity_index")
+            .eq("profile_id", c.risk_profile_id).order("date", { ascending: true })
+            .then(({ data }) => setBench(data ?? []));
+        }
         const [{ data: s }, { data: sig }] = await Promise.all([
           sb.from("account_snapshots").select("*")
             .eq("client_id", c.id).order("ts", { ascending: false }).limit(1),
@@ -69,14 +76,22 @@ export default function Dashboard() {
 
   const totalPct = snap?.start_equity ? ((snap.equity / snap.start_equity - 1) * 100) : null;
   const leverage = snap?.equity ? snap.exposure_notional / snap.equity : null;
-  const slices = positions.map((p) => ({ label: p.symbol, value: Math.abs(p.pos_amt * p.price) }));
+  const slices = positions.map((p) => ({
+    label: p.symbol, value: Math.abs(p.pos_amt * p.price), side: p.side,
+  }));
+  const freeUsdt = snap ? Math.max(0, snap.equity - (snap.margin_used ?? 0)) : null;
+  const marginPct = snap && snap.equity ? ((snap.margin_used ?? 0) / snap.equity) * 100 : null;
   const openSyms = new Set(positions.map((p) => p.symbol));
   const pending = signals.filter((s) => !openSyms.has(s.symbol))
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
 
+  const benchPoints = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index }));
+  const benchPct = benchPoints.length ? benchPoints[benchPoints.length - 1].y - 100 : null;
+  const profName: string = client?.risk_profiles?.name ?? "";
+
   return (
     <>
-      <div className="pagetitle">Cuenta
+      <div className="pagetitle">Resumen
         {client && <span className={`badge ${client.enabled ? "on" : "off"}`}>{client.enabled ? "ACTIVO" : "PARADO"}</span>}
       </div>
 
@@ -95,6 +110,16 @@ export default function Dashboard() {
             <div className="metric"><div className="v">${fmtUsd(snap.exposure_notional, 0)}</div><div className="l">Exposición</div></div>
             <div className="metric"><div className="v">{leverage == null ? "—" : `x${leverage.toFixed(2)}`}</div><div className="l">Apalancamiento en uso</div></div>
           </div>
+
+          {benchPoints.length > 1 && (
+            <div className="card">
+              <h2>Tu estrategia · {profName} · desde 01/01
+                {benchPct != null && <span className={pnlClass(benchPct)} style={{ marginLeft: 8 }}>{fmtPct(benchPct)}</span>}
+              </h2>
+              <LineChart points={benchPoints} baseline={100} color="var(--green)" height={160} />
+              <p className="note">Rendimiento simulado de la estrategia KV-9014 con tu perfil de riesgo en lo que va del año (índice 100 = 1 de enero). Tu cuenta sigue esta estrategia desde tu fecha de ingreso.</p>
+            </div>
+          )}
 
           <div className="card">
             <h2>Posiciones abiertas ({positions.length})</h2>
@@ -149,8 +174,15 @@ export default function Dashboard() {
           </div>
 
           <div className="card">
-            <h2>Composición de cartera</h2>
+            <h2>Composición de la exposición</h2>
             <Donut slices={slices} />
+            {freeUsdt != null && (
+              <p className="note" style={{ marginTop: 12 }}>
+                Margen en uso: ${fmtUsd(snap.margin_used ?? 0, 0)} ({marginPct?.toFixed(1)}% del equity) · USDT libre: ${fmtUsd(freeUsdt, 0)}
+              </p>
+            )}
+            <p className="note">En futuros tu capital nunca se "gasta": el 100% permanece en USDT como colateral.
+              El gráfico muestra la exposición nocional por activo; ▲ largo (ganas si sube), ▼ corto (ganas si baja).</p>
           </div>
 
         </>

@@ -48,7 +48,8 @@ export default function Performance() {
             if (!prev || r.id > prev.id) seen.set(r.symbol, r);
           }
           setSlices(Array.from(seen.values()).filter((r) => r.pos_amt !== 0)
-            .map((r) => ({ label: r.symbol, value: Math.abs(r.pos_amt * r.price) })));
+            .map((r) => ({ label: r.symbol, value: Math.abs(r.pos_amt * r.price),
+                           side: r.pos_amt > 0 ? "LARGO" : "CORTO" })));
         }
       }
       setLoading(false);

@@ -65,7 +65,7 @@ export default function ProfilePage() {
     const r = await callEdge("store-binance-keys", { api_key: apiKey, api_secret: apiSecret });
     if (r.error) setMsg({ err: r.error });
     else {
-      setMsg({ ok: `Claves validadas y guardadas (····${r.last4}).` });
+      setMsg({ ok: `Claves guardadas (····${r.last4}) · red detectada: ${r.network === "real" ? "REAL (mainnet)" : "TESTNET"}${r.warning ? ` · ${r.warning}` : ""}` });
       setApiKey(""); setApiSecret(""); setShowKeys(false);
       await load();
     }
@@ -82,7 +82,7 @@ export default function ProfilePage() {
 
   async function toggleEnabled() {
     if (client.enabled) setShowDisable(true);
-    else await rpcSettings({ p_enabled: true });
+    else await rpcSettings({ p_enabled: true });  // registers an activation REQUEST
   }
 
   async function confirmDisable(mode: "flatten" | "wind_down") {
@@ -150,7 +150,8 @@ export default function ProfilePage() {
         ) : (
           <>
             <p className="note">Crea en Binance una clave API con permiso <b>solo de futuros</b> (sin retiros)
-              y restringida a la IP del servidor. Nunca compartas la clave con nadie más.</p>
+              y restringida a la IP del servidor. La red (real o testnet) se detecta automáticamente.
+              Nunca compartas la clave con nadie más.</p>
             <button className="btn" onClick={() => setShowKeys(true)}>Añadir claves</button>
           </>
         )}
@@ -172,17 +173,27 @@ export default function ProfilePage() {
 
       <div className="card">
         <h2>Bot de trading</h2>
-        <p className="note">
-          {client.enabled
-            ? "El bot está operando tu cuenta cada hora según tu perfil de riesgo."
-            : "El bot no está operando tu cuenta. Actívalo cuando tus claves estén configuradas."}
-        </p>
-        <button className={client.enabled ? "btn danger" : "btn"} onClick={toggleEnabled}
-          disabled={busy || (!client.enabled && client.key_status !== "valid")}>
-          {client.enabled ? "Desactivar bot" : "Activar bot"}
-        </button>
-        {!client.enabled && client.key_status !== "valid" && (
-          <p className="note">Configura primero tus claves API para poder activar el bot.</p>
+        {client.enabled ? (
+          <>
+            <p className="note">El bot está operando tu cuenta cada hora según tu perfil de riesgo.</p>
+            <button className="btn danger" onClick={toggleEnabled} disabled={busy}>Desactivar bot</button>
+          </>
+        ) : client.activation_requested ? (
+          <>
+            <span className="badge neutral">ACTIVACIÓN PENDIENTE DE APROBACIÓN</span>
+            <p className="note">Tu solicitud fue enviada. El administrador revisará tu cuenta y activará el bot; recibirás el alta normalmente en menos de 24&nbsp;h.</p>
+          </>
+        ) : (
+          <>
+            <p className="note">Cuando tus claves estén configuradas y hayas elegido perfil, solicita la activación: el administrador revisa tu cuenta y da el alta final.</p>
+            <button className="btn" onClick={toggleEnabled}
+              disabled={busy || client.key_status !== "valid" || !client.risk_profile_id}>
+              Solicitar activación
+            </button>
+            {client.key_status !== "valid" && (
+              <p className="note">Configura primero tus claves API.</p>
+            )}
+          </>
         )}
       </div>
 
