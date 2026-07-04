@@ -99,9 +99,9 @@ export default function History() {
                   <tr key={s.symbol}>
                     <td>{s.symbol.replace("USDT", "")}</td>
                     <td className={s.side === 1 ? "pos" : s.side === -1 ? "neg" : "muted"}>{sideName(s.side)}</td>
-                    <td>{fmtUsd(s.price, 4)}</td>
-                    <td>{fmtUsd(s.long_trigger, 4)}</td>
-                    <td>{fmtUsd(s.short_trigger, 4)}</td>
+                    <td>{fmtUsd(s.price)}</td>
+                    <td>{fmtUsd(s.long_trigger)}</td>
+                    <td>{fmtUsd(s.short_trigger)}</td>
                   </tr>
                 ))}
               </tbody>

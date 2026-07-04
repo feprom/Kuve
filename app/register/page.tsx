@@ -25,8 +25,9 @@ export default function Register() {
   return (
     <div className="authwrap">
       <form className="authcard" onSubmit={submit}>
-        <h1>Crear cuenta</h1>
-        <div className="sub">KUVE Finance — portal de clientes</div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="authlogo" src="/kuve-logo.jpg" alt="KUVE Finance" />
+        <h1 style={{ textAlign: "center" }}>Crear cuenta</h1>
         {done ? (
           <div>
             <div className="ok-msg">Cuenta creada. Revisa tu email para confirmar y después <Link href="/login">inicia sesión</Link>.</div>

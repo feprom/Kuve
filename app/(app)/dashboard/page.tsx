@@ -9,7 +9,18 @@ type Snap = {
   margin_used: number; exposure_notional: number; open_positions: number;
   realized_cum: number; dd_pct: number; start_equity: number; bar_time: string; ts: string;
 };
-type Pos = { symbol: string; side: string; pos_amt: number; price: number; entry_price: number; unrealized_pnl: number };
+type Pos = { id: number; symbol: string; side: string; pos_amt: number; price: number; entry_price: number; unrealized_pnl: number };
+
+/** The bot may write more than one row per symbol for the same bar (e.g. after a
+ *  restart) — keep only the most recent row per symbol. */
+function dedupeBySymbol(rows: Pos[]): Pos[] {
+  const seen = new Map<string, Pos>();
+  for (const r of rows) {
+    const prev = seen.get(r.symbol);
+    if (!prev || r.id > prev.id) seen.set(r.symbol, r);
+  }
+  return Array.from(seen.values()).sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
 
 export default function Dashboard() {
   const [snap, setSnap] = useState<Snap | null>(null);
@@ -31,8 +42,8 @@ export default function Dashboard() {
         setSnap(latest);
         if (latest) {
           const { data: p } = await sb.from("positions").select("*")
-            .eq("client_id", c.id).eq("bar_time", latest.bar_time).order("symbol");
-          setPositions((p ?? []).filter((r: Pos) => r.pos_amt !== 0));
+            .eq("client_id", c.id).eq("bar_time", latest.bar_time);
+          setPositions(dedupeBySymbol((p ?? []).filter((r: Pos) => r.pos_amt !== 0)));
         }
       }
       setLoading(false);
@@ -70,17 +81,25 @@ export default function Dashboard() {
             <h2>Posiciones abiertas ({positions.length})</h2>
             {positions.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin posiciones abiertas</div> : (
               <table>
-                <thead><tr><th>Activo</th><th>Lado</th><th>Tamaño</th><th>Entrada</th><th>uPnL</th></tr></thead>
+                <thead><tr><th>Activo</th><th>Lado</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th></tr></thead>
                 <tbody>
-                  {positions.map((p) => (
-                    <tr key={p.symbol}>
-                      <td>{p.symbol.replace("USDT", "")}</td>
-                      <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
-                      <td>{p.pos_amt}</td>
-                      <td>{fmtUsd(p.entry_price, 4)}</td>
-                      <td className={pnlClass(p.unrealized_pnl)}>{fmtUsd(p.unrealized_pnl)}</td>
-                    </tr>
-                  ))}
+                  {positions.map((p) => {
+                    const notional = Math.abs(p.pos_amt * p.price);
+                    const pnlPct = p.entry_price
+                      ? (p.price / p.entry_price - 1) * 100 * Math.sign(p.pos_amt)
+                      : null;
+                    return (
+                      <tr key={p.symbol}>
+                        <td>{p.symbol.replace("USDT", "")}</td>
+                        <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
+                        <td>{fmtUsd(notional, 0)}</td>
+                        <td>{fmtUsd(p.entry_price)}</td>
+                        <td>{fmtUsd(p.price)}</td>
+                        <td className={pnlClass(p.unrealized_pnl)}>{fmtUsd(p.unrealized_pnl)}</td>
+                        <td className={pnlClass(pnlPct)}>{fmtPct(pnlPct)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

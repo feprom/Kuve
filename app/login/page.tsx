@@ -23,8 +23,9 @@ export default function Login() {
   return (
     <div className="authwrap">
       <form className="authcard" onSubmit={submit}>
-        <h1>KUVE Finance</h1>
-        <div className="sub">Acceso de clientes</div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img className="authlogo" src="/kuve-logo.jpg" alt="KUVE Finance" />
+        <div className="sub" style={{ textAlign: "center" }}>Acceso de clientes</div>
         <label className="field">Email
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
         </label>

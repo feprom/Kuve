@@ -20,7 +20,14 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 
-.wrap { max-width: 640px; margin: 0 auto; padding: 18px 16px calc(var(--nav-h) + 28px); }
+.wrap { max-width: 640px; margin: 0 auto; padding: 10px 16px calc(var(--nav-h) + 28px); }
+.topbar {
+  max-width: 640px; margin: 0 auto; padding: 14px 16px 6px;
+  display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.topbar img { height: 44px; width: auto; display: block; }
+.authlogo { height: 72px; width: auto; display: block; margin: 0 auto 14px; }
 .pagetitle { font-size: 20px; font-weight: 600; margin: 6px 0 16px; display: flex; align-items: center; gap: 10px; }
 .pagetitle .tag {
   font-family: 'Courier New', monospace; background: var(--panel2); border: 1px solid var(--accent);
