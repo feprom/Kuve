@@ -104,6 +104,10 @@ export default function ProfilePage() {
         <label className="field">Nombre
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
+        <p className="note" style={{ marginBottom: 12 }}>
+          {client.email && <>Correo: <b>{client.email}</b><br /></>}
+          {client.created_at && <>Usuario desde: {new Date(client.created_at).toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })}</>}
+        </p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, fontSize: 13 }}>
           <span className={`badge ${client.enabled ? "on" : "off"}`}>{client.enabled ? "BOT ACTIVO" : "BOT PARADO"}</span>
           <span className="badge neutral">modo: {client.mode}</span>

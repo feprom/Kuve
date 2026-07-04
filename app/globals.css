@@ -26,8 +26,12 @@ a { color: var(--accent); text-decoration: none; }
   display: flex; align-items: center; gap: 12px;
   border-bottom: 1px solid var(--border);
 }
-.topbar img { height: 44px; width: auto; display: block; }
-.authlogo { height: 72px; width: auto; display: block; margin: 0 auto 14px; }
+.topbar img { height: 66px; width: auto; display: block; }
+.topbar .tag {
+  font-family: 'Courier New', monospace; background: var(--panel2); border: 1px solid var(--accent);
+  color: var(--accent); padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+}
+.authlogo { height: 108px; width: auto; display: block; margin: 0 auto 14px; }
 .pagetitle { font-size: 20px; font-weight: 600; margin: 6px 0 16px; display: flex; align-items: center; gap: 10px; }
 .pagetitle .tag {
   font-family: 'Courier New', monospace; background: var(--panel2); border: 1px solid var(--accent);

@@ -13,6 +13,8 @@ export default function History() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fSymbol, setFSymbol] = useState<string>("all");
+  const [fSide, setFSide] = useState<string>("all");
 
   useEffect(() => {
     (async () => {
@@ -35,6 +37,13 @@ export default function History() {
   if (loading) return <div className="muted">Cargando…</div>;
   const sideName = (s: number) => (s === 1 ? "LARGO" : s === -1 ? "CORTO" : "PLANO");
 
+  const symbols = Array.from(new Set([...trades.map((t) => t.symbol), ...orders.map((o) => o.symbol)]
+    .filter(Boolean))).sort();
+  const ftrades = trades.filter((t) =>
+    (fSymbol === "all" || t.symbol === fSymbol) && (fSide === "all" || t.side === fSide));
+  const forders = orders.filter((o) =>
+    (fSymbol === "all" || o.symbol === fSymbol) && (fSide === "all" || o.side === fSide));
+
   return (
     <>
       <div className="pagetitle">Historial</div>
@@ -44,14 +53,28 @@ export default function History() {
         <div className={`tab ${tab === "strategy" ? "active" : ""}`} onClick={() => setTab("strategy")}>Estrategia</div>
       </div>
 
+      {tab !== "strategy" && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <select value={fSymbol} onChange={(e) => setFSymbol(e.target.value)}>
+            <option value="all">Todos los activos</option>
+            {symbols.map((s) => <option key={s} value={s}>{s.replace("USDT", "")}</option>)}
+          </select>
+          <select value={fSide} onChange={(e) => setFSide(e.target.value)}>
+            <option value="all">Compras y ventas</option>
+            <option value="BUY">Compras (BUY)</option>
+            <option value="SELL">Ventas (SELL)</option>
+          </select>
+        </div>
+      )}
+
       {tab === "trades" && (
         <div className="card">
           <h2>Trades ejecutados</h2>
-          {trades.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin operaciones todavía</div> : (
+          {ftrades.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin operaciones con esos filtros</div> : (
             <table>
               <thead><tr><th>Fecha</th><th>Activo</th><th>Op.</th><th>Profit</th><th>Acum.</th></tr></thead>
               <tbody>
-                {trades.map((t) => (
+                {ftrades.map((t) => (
                   <tr key={t.id}>
                     <td>{fmtDate(t.ts)}</td>
                     <td>{t.symbol?.replace("USDT", "")}</td>
@@ -69,11 +92,11 @@ export default function History() {
       {tab === "orders" && (
         <div className="card">
           <h2>Órdenes enviadas</h2>
-          {orders.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin órdenes todavía</div> : (
+          {forders.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin órdenes con esos filtros</div> : (
             <table>
               <thead><tr><th>Fecha</th><th>Activo</th><th>Lado</th><th>Qty</th><th>Estado</th></tr></thead>
               <tbody>
-                {orders.map((o) => (
+                {forders.map((o) => (
                   <tr key={o.id} title={o.error ?? undefined}>
                     <td>{fmtDate(o.ts)}</td>
                     <td>{o.symbol.replace("USDT", "")}</td>

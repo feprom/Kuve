@@ -6,6 +6,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="topbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/kuve-logo.jpg" alt="KUVE Finance" />
+        <span className="tag" style={{ marginLeft: "auto" }}>KV-9014</span>
       </header>
       <div className="wrap">{children}</div>
       <BottomNav />
