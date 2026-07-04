@@ -21,12 +21,17 @@ export default function History() {
       const sb = supabaseBrowser();
       const { data: { user } } = await sb.auth.getUser();
       if (!user) return;
-      const { data: c } = await sb.from("clients").select("id").eq("auth_uid", user.id).single();
+      const { data: c } = await sb.from("clients").select("id, risk_profiles(atr_mult)")
+        .eq("auth_uid", user.id).single();
       if (c) {
+        const atr = (c as any).risk_profiles?.atr_mult;
+        const variant = atr == null ? "default"
+          : `atr${Number.isInteger(Number(atr)) ? parseInt(String(atr)) : atr}`;
         const [t, o, s] = await Promise.all([
           sb.from("trades").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
           sb.from("orders").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
-          sb.from("strategy_signals").select("*").order("bar_time", { ascending: false }).limit(8),
+          sb.from("strategy_signals").select("*").eq("variant", variant)
+            .order("bar_time", { ascending: false }).limit(8),
         ]);
         setTrades(t.data ?? []); setOrders(o.data ?? []); setSignals(s.data ?? []);
       }

@@ -1,32 +1,16 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, pnlClass } from "@/lib/format";
 import LineChart from "@/components/LineChart";
-import CandleChart, { type Candle } from "@/components/CandleChart";
 import Donut from "@/components/Donut";
 
 type Snap = { ts: string; bar_time: string; equity: number; dd_pct: number; realized_cum: number; start_equity: number; n_trades: number };
 type PosRow = { id: number; symbol: string; pos_amt: number; price: number };
 type Bench = { date: string; equity_index: number };
 
-function dailyCandles(snaps: Snap[]): Candle[] {
-  const byDay = new Map<string, Snap[]>();
-  for (const s of snaps) {
-    const day = s.ts.slice(0, 10);
-    (byDay.get(day) ?? byDay.set(day, []).get(day)!).push(s);
-  }
-  const out: Candle[] = [];
-  for (const [day, rows] of Array.from(byDay.entries()).sort()) {
-    const ys = rows.map((r) => r.equity);
-    out.push({ t: new Date(day + "T00:00:00Z").getTime(),
-      o: ys[0], h: Math.max(...ys), l: Math.min(...ys), c: ys[ys.length - 1] });
-  }
-  return out;
-}
-
 export default function Performance() {
-  const [tab, setTab] = useState<"equity" | "velas" | "dd" | "estrategia" | "asignacion">("equity");
+  const [tab, setTab] = useState<"equity" | "dd" | "estrategia" | "asignacion">("equity");
   const [snaps, setSnaps] = useState<Snap[]>([]);
   const [bench, setBench] = useState<Bench[]>([]);
   const [profileName, setProfileName] = useState<string>("");
@@ -71,7 +55,6 @@ export default function Performance() {
     })();
   }, []);
 
-  const candles = useMemo(() => dailyCandles(snaps), [snaps]);
   if (loading) return <div className="muted">Cargando…</div>;
 
   const last = snaps[snaps.length - 1];
@@ -82,9 +65,8 @@ export default function Performance() {
   const benchPct = benchPoints.length ? benchPoints[benchPoints.length - 1].y - 100 : null;
 
   const tabs: { id: typeof tab; label: string }[] = [
-    { id: "equity", label: "Equity" }, { id: "velas", label: "Velas" },
-    { id: "dd", label: "DD" }, { id: "estrategia", label: "Estrategia" },
-    { id: "asignacion", label: "Cartera" },
+    { id: "equity", label: "Equity" }, { id: "dd", label: "DD" },
+    { id: "estrategia", label: "Estrategia" }, { id: "asignacion", label: "Cartera" },
   ];
 
   return (
@@ -111,13 +93,6 @@ export default function Performance() {
             <div className="card">
               <h2>Curva de equity (desde el inicio de tu cuenta)</h2>
               <LineChart points={eqPoints} baseline={last.start_equity} />
-            </div>
-          )}
-
-          {tab === "velas" && (
-            <div className="card">
-              <h2>Equity — velas diarias</h2>
-              <CandleChart candles={candles} />
             </div>
           )}
 

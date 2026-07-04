@@ -11,7 +11,11 @@ type Snap = {
   realized_cum: number; dd_pct: number; start_equity: number; bar_time: string; ts: string;
 };
 type Pos = { id: number; symbol: string; side: string; pos_amt: number; price: number; entry_price: number; unrealized_pnl: number };
-type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string };
+type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string; created_at: string };
+
+/** Signal variant for a profile: null atr_mult -> 'default', 10 -> 'atr10'. */
+const variantOf = (atr: number | null | undefined) =>
+  atr == null ? "default" : `atr${Number.isInteger(Number(atr)) ? parseInt(String(atr)) : atr}`;
 
 /** The bot may write more than one row per symbol for the same bar (e.g. after a
  *  restart) — keep only the most recent row per symbol. */
@@ -36,13 +40,16 @@ export default function Dashboard() {
       const sb = supabaseBrowser();
       const { data: { user } } = await sb.auth.getUser();
       if (!user) return;
-      const { data: c } = await sb.from("clients").select("*").eq("auth_uid", user.id).single();
+      const { data: c } = await sb.from("clients").select("*, risk_profiles(atr_mult)")
+        .eq("auth_uid", user.id).single();
       setClient(c);
       if (c) {
+        const variant = variantOf((c as any).risk_profiles?.atr_mult);
         const [{ data: s }, { data: sig }] = await Promise.all([
           sb.from("account_snapshots").select("*")
             .eq("client_id", c.id).order("ts", { ascending: false }).limit(1),
-          sb.from("strategy_signals").select("*").order("bar_time", { ascending: false }).limit(8),
+          sb.from("strategy_signals").select("*").eq("variant", variant)
+            .order("bar_time", { ascending: false }).limit(8),
         ]);
         const latest = s?.[0] ?? null;
         setSnap(latest);
@@ -135,6 +142,9 @@ export default function Dashboard() {
               </table>
             )}
             <p className="note">El punto indica dónde está el precio entre el disparo de venta (rojo) y el de compra (verde). Cerca de un extremo = ruptura próxima.</p>
+            {signals[0] && (
+              <p className="note">Señales actualizadas: {fmtDate(signals[0].created_at ?? signals[0].bar_time)} (tu hora local) · vela {fmtDate(signals[0].bar_time)}</p>
+            )}
           </div>
 
           <div className="card">
