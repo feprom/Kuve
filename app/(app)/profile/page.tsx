@@ -19,10 +19,13 @@ export default function ProfilePage() {
   const [showKeys, setShowKeys] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   async function load() {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
+    const { data: adm } = await sb.from("admin_users").select("auth_uid").eq("auth_uid", user.id);
+    setIsAdmin(!!adm?.length);
     const { data: c } = await sb.from("clients").select("*").eq("auth_uid", user.id).single();
     setClient(c); setName(c?.name ?? "");
     const { data: p } = await sb.from("risk_profiles").select("*").order("id");
@@ -186,6 +189,9 @@ export default function ProfilePage() {
       {msg.err && <div className="error-msg">{msg.err}</div>}
       {msg.ok && <div className="ok-msg">{msg.ok}</div>}
 
+      {isAdmin && (
+        <a href="/admin"><button className="btn" style={{ marginBottom: 10 }}>Panel de administración</button></a>
+      )}
       <button className="btn secondary" onClick={logout}>Cerrar sesión</button>
 
       {showDisable && (

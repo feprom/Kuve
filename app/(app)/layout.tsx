@@ -1,12 +1,14 @@
 import BottomNav from "@/components/BottomNav";
+import Logo from "@/components/Logo";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <header className="topbar">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/kuve-logo.jpg" alt="KUVE Finance" />
-        <span className="tag" style={{ marginLeft: "auto" }}>KV-9014</span>
+        <div className="topbar-inner">
+          <Logo height={40} />
+          <span className="tag" style={{ marginLeft: "auto" }}>KV-9014</span>
+        </div>
       </header>
       <div className="wrap">{children}</div>
       <BottomNav />

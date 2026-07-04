@@ -20,13 +20,21 @@ body {
 }
 a { color: var(--accent); text-decoration: none; }
 
-.wrap { max-width: 640px; margin: 0 auto; padding: 10px 16px calc(var(--nav-h) + 28px); }
-.topbar {
-  max-width: 640px; margin: 0 auto; padding: 14px 16px 6px;
-  display: flex; align-items: center; gap: 12px;
-  border-bottom: 1px solid var(--border);
+:root { --top-h: 60px; }
+.wrap {
+  max-width: 640px; margin: 0 auto;
+  padding: calc(var(--top-h) + env(safe-area-inset-top) + 14px) 16px calc(var(--nav-h) + 28px);
 }
-.topbar img { height: 66px; width: auto; display: block; }
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  background: rgba(11, 14, 19, .92); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  padding-top: env(safe-area-inset-top);
+}
+.topbar-inner {
+  max-width: 640px; margin: 0 auto; height: var(--top-h);
+  display: flex; align-items: center; gap: 12px; padding: 0 16px;
+}
 .topbar .tag {
   font-family: 'Courier New', monospace; background: var(--panel2); border: 1px solid var(--accent);
   color: var(--accent); padding: 1px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .06em;

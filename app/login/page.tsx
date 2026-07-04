@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import Logo from "@/components/Logo";
 
 export default function Login() {
   const router = useRouter();
@@ -23,8 +24,7 @@ export default function Login() {
   return (
     <div className="authwrap">
       <form className="authcard" onSubmit={submit}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="authlogo" src="/kuve-logo.jpg" alt="KUVE Finance" />
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><Logo height={96} /></div>
         <div className="sub" style={{ textAlign: "center" }}>Acceso de clientes</div>
         <label className="field">Email
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />

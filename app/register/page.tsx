@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import Logo from "@/components/Logo";
 
 export default function Register() {
   const [name, setName] = useState("");
@@ -25,8 +26,7 @@ export default function Register() {
   return (
     <div className="authwrap">
       <form className="authcard" onSubmit={submit}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="authlogo" src="/kuve-logo.jpg" alt="KUVE Finance" />
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><Logo height={96} /></div>
         <h1 style={{ textAlign: "center" }}>Crear cuenta</h1>
         {done ? (
           <div>
