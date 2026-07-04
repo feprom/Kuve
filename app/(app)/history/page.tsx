@@ -1,0 +1,115 @@
+"use client";
+import { useEffect, useState } from "react";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { fmtUsd, fmtDate, pnlClass } from "@/lib/format";
+
+type Trade = { id: number; ts: string; symbol: string; side: string; tag: string; profit: number; commission: number; cum: number; qty: number | null; price: number | null };
+type Order = { id: number; ts: string; symbol: string; side: string; qty: number; status: string; reduce_only: boolean; error: string | null };
+type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string };
+
+export default function History() {
+  const [tab, setTab] = useState<"trades" | "orders" | "strategy">("trades");
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [signals, setSignals] = useState<Signal[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const sb = supabaseBrowser();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) return;
+      const { data: c } = await sb.from("clients").select("id").eq("auth_uid", user.id).single();
+      if (c) {
+        const [t, o, s] = await Promise.all([
+          sb.from("trades").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
+          sb.from("orders").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
+          sb.from("strategy_signals").select("*").order("bar_time", { ascending: false }).limit(8),
+        ]);
+        setTrades(t.data ?? []); setOrders(o.data ?? []); setSignals(s.data ?? []);
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div className="muted">Cargando…</div>;
+  const sideName = (s: number) => (s === 1 ? "LARGO" : s === -1 ? "CORTO" : "PLANO");
+
+  return (
+    <>
+      <div className="pagetitle">Historial</div>
+      <div className="tabs">
+        <div className={`tab ${tab === "trades" ? "active" : ""}`} onClick={() => setTab("trades")}>Trades</div>
+        <div className={`tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>Órdenes</div>
+        <div className={`tab ${tab === "strategy" ? "active" : ""}`} onClick={() => setTab("strategy")}>Estrategia</div>
+      </div>
+
+      {tab === "trades" && (
+        <div className="card">
+          <h2>Trades ejecutados</h2>
+          {trades.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin operaciones todavía</div> : (
+            <table>
+              <thead><tr><th>Fecha</th><th>Activo</th><th>Op.</th><th>Profit</th><th>Acum.</th></tr></thead>
+              <tbody>
+                {trades.map((t) => (
+                  <tr key={t.id}>
+                    <td>{fmtDate(t.ts)}</td>
+                    <td>{t.symbol?.replace("USDT", "")}</td>
+                    <td>{t.side}</td>
+                    <td className={pnlClass(t.profit)}>{fmtUsd(t.profit)}</td>
+                    <td className={pnlClass(t.cum)}>{fmtUsd(t.cum)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {tab === "orders" && (
+        <div className="card">
+          <h2>Órdenes enviadas</h2>
+          {orders.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin órdenes todavía</div> : (
+            <table>
+              <thead><tr><th>Fecha</th><th>Activo</th><th>Lado</th><th>Qty</th><th>Estado</th></tr></thead>
+              <tbody>
+                {orders.map((o) => (
+                  <tr key={o.id} title={o.error ?? undefined}>
+                    <td>{fmtDate(o.ts)}</td>
+                    <td>{o.symbol.replace("USDT", "")}</td>
+                    <td className={o.side === "BUY" ? "pos" : "neg"}>{o.side}{o.reduce_only ? " (cierre)" : ""}</td>
+                    <td>{o.qty}</td>
+                    <td className={o.status === "filled" ? "pos" : o.status === "error" ? "neg" : "muted"}>{o.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {tab === "strategy" && (
+        <div className="card">
+          <h2>Estado de la estrategia (última vela)</h2>
+          {signals.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin señales aún</div> : (
+            <table>
+              <thead><tr><th>Activo</th><th>Señal</th><th>Precio</th><th>Disparo L</th><th>Disparo C</th></tr></thead>
+              <tbody>
+                {signals.map((s) => (
+                  <tr key={s.symbol}>
+                    <td>{s.symbol.replace("USDT", "")}</td>
+                    <td className={s.side === 1 ? "pos" : s.side === -1 ? "neg" : "muted"}>{sideName(s.side)}</td>
+                    <td>{fmtUsd(s.price, 4)}</td>
+                    <td>{fmtUsd(s.long_trigger, 4)}</td>
+                    <td>{fmtUsd(s.short_trigger, 4)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {signals[0] && <p className="note">Vela: {fmtDate(signals[0].bar_time)}</p>}
+        </div>
+      )}
+    </>
+  );
+}
