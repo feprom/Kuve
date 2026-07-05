@@ -21,6 +21,20 @@ export default function Admin() {
   const [snaps, setSnaps] = useState<Map<string, Snap>>(new Map());
   const [events, setEvents] = useState<Evt[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [openPos, setOpenPos] = useState<any[]>([]);
+
+  async function togglePositions(id: string) {
+    if (openId === id) { setOpenId(null); return; }
+    setOpenId(id); setOpenPos([]);
+    const sb = supabaseBrowser();
+    const { data } = await sb.from("positions").select("id, symbol, side, pos_amt, price, entry_price, unrealized_pnl")
+      .eq("client_id", id).order("id", { ascending: false }).limit(40);
+    const seen = new Map<string, any>();
+    for (const r of data ?? []) if (!seen.has(r.symbol)) seen.set(r.symbol, r);
+    setOpenPos(Array.from(seen.values()).filter((r) => r.pos_amt !== 0)
+      .sort((a, b) => a.symbol.localeCompare(b.symbol)));
+  }
 
   async function toggleClient(id: string, enabled: boolean) {
     if (enabled && !confirm("¿Activar el bot para este cliente? Empezará a operar en la próxima vela.")) return;
@@ -123,8 +137,10 @@ export default function Admin() {
                 const pnl = s && s.start_equity ? s.equity - s.start_equity : null;
                 const pnlPct = s && s.start_equity ? (s.equity / s.start_equity - 1) * 100 : null;
                 return (
-                  <tr key={c.id} title={`${c.email ?? ""} · modo ${c.mode} · claves ${c.key_status}${s ? ` · DD ${fmtPct(s.dd_pct)}` : ""}`}>
-                    <td>{c.name || c.id.slice(0, 8)}</td>
+                  <>
+                  <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => togglePositions(c.id)}
+                    title={`${c.email ?? ""} · modo ${c.mode} · claves ${c.key_status}${s ? ` · DD ${fmtPct(s.dd_pct)}` : ""}`}>
+                    <td>{openId === c.id ? "▾ " : "▸ "}{c.name || c.id.slice(0, 8)}</td>
                     <td>{c.risk_profiles?.name?.split(" ")[0] ?? "—"}</td>
                     <td>{s ? `$${fmtUsd(s.equity, 0)}` : "—"}</td>
                     <td className={pnlClass(pnl)}>{pnl == null ? "—" : fmtUsd(pnl, 0)}</td>
@@ -136,7 +152,7 @@ export default function Admin() {
                       {c.key_status !== "valid" && <span className="badge neutral">sin claves</span>}
                       {c.mode === "testnet" && <span className="badge neutral">testnet</span>}
                     </td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       {c.enabled ? (
                         <button className="btn-mini pause" disabled={busyId === c.id}
                           onClick={() => toggleClient(c.id, false)}>⏸</button>
@@ -148,6 +164,33 @@ export default function Admin() {
                       )}
                     </td>
                   </tr>
+                  {openId === c.id && (
+                    <tr key={c.id + "_pos"}>
+                      <td colSpan={8} style={{ background: "var(--panel2)", padding: "10px 14px" }}>
+                        {openPos.length === 0
+                          ? <span className="muted" style={{ fontSize: 12 }}>Sin posiciones abiertas</span>
+                          : (
+                            <table>
+                              <thead><tr><th>Activo</th><th>Lado</th><th>Tamaño</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th></tr></thead>
+                              <tbody>
+                                {openPos.map((p) => (
+                                  <tr key={p.symbol}>
+                                    <td>{p.symbol.replace("USDT", "")}</td>
+                                    <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
+                                    <td>{p.pos_amt}</td>
+                                    <td>{fmtUsd(Math.abs(p.pos_amt * p.price), 0)}</td>
+                                    <td>{fmtUsd(p.entry_price)}</td>
+                                    <td>{fmtUsd(p.price)}</td>
+                                    <td className={pnlClass(p.unrealized_pnl)}>{fmtUsd(p.unrealized_pnl)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 );
               })}
             </tbody>
@@ -160,16 +203,22 @@ export default function Admin() {
         <h2>Eventos recientes</h2>
         {events.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin eventos</div> : (
           <table>
-            <thead><tr><th>Fecha</th><th>Cliente</th><th>Evento</th><th>Nivel</th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Cliente</th><th>Evento</th><th style={{ textAlign: "left" }}>Detalle</th></tr></thead>
             <tbody>
-              {events.map((e) => (
-                <tr key={e.id} title={JSON.stringify(e.detail ?? {})}>
-                  <td>{fmtDate(e.ts)}</td>
-                  <td>{e.client_id ? e.client_id.slice(0, 10) : "sistema"}</td>
-                  <td>{e.kind}</td>
-                  <td className={e.level === "error" ? "neg" : e.level === "warn" ? "" : "muted"}>{e.level}</td>
-                </tr>
-              ))}
+              {events.map((e) => {
+                const cli = clients.find((c) => c.id === e.client_id);
+                const det = e.detail?.error ?? e.detail?.message ?? e.detail?.warning ??
+                  (e.detail?.symbol ? `${e.detail.symbol}${e.detail.side ? " " + e.detail.side : ""}` : "");
+                return (
+                  <tr key={e.id} title={JSON.stringify(e.detail ?? {})}>
+                    <td>{fmtDate(e.ts)}</td>
+                    <td>{cli?.name?.trim() || (e.client_id ? e.client_id.slice(0, 8) : "sistema")}</td>
+                    <td className={e.level === "error" ? "neg" : e.level === "warn" ? "" : "muted"}>{e.kind}</td>
+                    <td style={{ textAlign: "left", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                      className="muted">{String(det).slice(0, 120)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
