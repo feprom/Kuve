@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
+import Sparkline from "@/components/Sparkline";
 
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
 type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
@@ -18,23 +20,9 @@ export default function Admin() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [clients, setClients] = useState<Cli[]>([]);
-  const [snaps, setSnaps] = useState<Map<string, Snap>>(new Map());
+  const [histByClient, setHistByClient] = useState<Map<string, Snap[]>>(new Map());
   const [events, setEvents] = useState<Evt[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [openPos, setOpenPos] = useState<any[]>([]);
-
-  async function togglePositions(id: string) {
-    if (openId === id) { setOpenId(null); return; }
-    setOpenId(id); setOpenPos([]);
-    const sb = supabaseBrowser();
-    const { data } = await sb.from("positions").select("id, symbol, side, pos_amt, price, entry_price, unrealized_pnl")
-      .eq("client_id", id).order("id", { ascending: false }).limit(40);
-    const seen = new Map<string, any>();
-    for (const r of data ?? []) if (!seen.has(r.symbol)) seen.set(r.symbol, r);
-    setOpenPos(Array.from(seen.values()).filter((r) => r.pos_amt !== 0)
-      .sort((a, b) => a.symbol.localeCompare(b.symbol)));
-  }
 
   async function toggleClient(id: string, enabled: boolean) {
     if (enabled && !confirm("¿Activar el bot para este cliente? Empezará a operar en la próxima vela.")) return;
@@ -59,15 +47,18 @@ export default function Admin() {
         sb.from("clients").select("*, risk_profiles(name)").order("created_at"),
         sb.from("account_snapshots")
           .select("client_id, ts, equity, start_equity, realized_cum, exposure_notional, open_positions, dd_pct")
-          .order("ts", { ascending: false }).limit(500),
+          .order("ts", { ascending: true }).limit(6000),
         sb.from("events").select("*").order("ts", { ascending: false }).limit(30),
       ]);
       setRuns(r.data ?? []);
       setClients(c.data ?? []);
-      const latest = new Map<string, Snap>();
-      for (const row of (s.data ?? []) as Snap[])
-        if (!latest.has(row.client_id)) latest.set(row.client_id, row);
-      setSnaps(latest);
+      const byClient = new Map<string, Snap[]>();
+      for (const row of (s.data ?? []) as Snap[]) {
+        const arr = byClient.get(row.client_id) ?? [];
+        arr.push(row);
+        byClient.set(row.client_id, arr);
+      }
+      setHistByClient(byClient);
       setEvents(e.data ?? []);
     })();
   }, []);
@@ -83,13 +74,26 @@ export default function Admin() {
       : { label: "OPERANDO", cls: "on" })
       : { label: `SIN REPORTAR ${Math.round(ageMin)} min`, cls: "off" };
 
+  const latestOf = (id: string) => {
+    const arr = histByClient.get(id);
+    return arr && arr.length ? arr[arr.length - 1] : undefined;
+  };
+  const sparkOf = (id: string) => {
+    const arr = histByClient.get(id) ?? [];
+    const cutoff = Date.now() - 7 * 86400_000;
+    const recent = arr.filter((s) => new Date(s.ts).getTime() >= cutoff);
+    const pts = (recent.length >= 2 ? recent : arr.slice(-30))
+      .map((s) => ({ x: new Date(s.ts).getTime(), y: s.equity }));
+    return pts;
+  };
+
   const active = clients.filter((c) => c.enabled);
-  const aum = active.reduce((a, c) => a + (snaps.get(c.id)?.equity ?? 0), 0);
+  const aum = active.reduce((a, c) => a + (latestOf(c.id)?.equity ?? 0), 0);
   const pnlTotal = active.reduce((a, c) => {
-    const s = snaps.get(c.id);
+    const s = latestOf(c.id);
     return a + (s && s.start_equity ? s.equity - s.start_equity : 0);
   }, 0);
-  const exposure = active.reduce((a, c) => a + (snaps.get(c.id)?.exposure_notional ?? 0), 0);
+  const exposure = active.reduce((a, c) => a + (latestOf(c.id)?.exposure_notional ?? 0), 0);
   const cutoff = nextCutoff();
 
   return (
@@ -105,8 +109,59 @@ export default function Admin() {
         <div className="metric"><div className="v">${fmtUsd(exposure, 0)}</div><div className="l">Exposición total</div></div>
       </div>
 
-      <div className="card">
-        <h2>Estado del bot (últimas barras)</h2>
+      <div className="admin-grid">
+        {clients.map((c) => {
+          const s = latestOf(c.id);
+          const pnl = s && s.start_equity ? s.equity - s.start_equity : null;
+          const pnlPct = s && s.start_equity ? (s.equity / s.start_equity - 1) * 100 : null;
+          const spark = sparkOf(c.id);
+          const sparkColor = pnl == null ? "var(--accent)" : pnl >= 0 ? "var(--green)" : "var(--red)";
+          return (
+            <Link key={c.id} href={`/admin/${c.id}`} className="client-card">
+              <div className="cc-head">
+                <div className="cc-name">{c.name || c.id.slice(0, 8)}</div>
+                <div className="cc-badges">
+                  <span className={`badge ${c.enabled ? "on" : "off"}`}>{c.enabled ? "ON" : "OFF"}</span>
+                  {c.activation_requested && !c.enabled && <span className="badge on">SOLICITA ALTA</span>}
+                  {c.key_status !== "valid" && <span className="badge neutral">sin claves</span>}
+                  {c.mode === "testnet" && <span className="badge neutral">testnet</span>}
+                </div>
+              </div>
+
+              <div>
+                <div className="cc-equity">{s ? `$${fmtUsd(s.equity, 0)}` : "—"}</div>
+                <div className={`cc-pnl ${pnlClass(pnl)}`}>
+                  {pnl == null ? "Sin datos" : `${fmtUsd(pnl, 0)} (${fmtPct(pnlPct, 1)})`}
+                </div>
+              </div>
+
+              <Sparkline points={spark} color={sparkColor} />
+
+              <div className="mini-metrics">
+                <div className="mm"><div className="v">${fmtUsd(s?.exposure_notional ?? null, 0)}</div><div className="l">Exposición</div></div>
+                <div className="mm"><div className="v">{s?.open_positions ?? "—"}</div><div className="l">Posiciones</div></div>
+                <div className="mm"><div className={`v ${s ? pnlClass(-Math.abs(s.dd_pct)) : ""}`}>{s ? fmtPct(s.dd_pct, 1) : "—"}</div><div className="l">Drawdown</div></div>
+                <div className="mm"><div className="v">{c.risk_profiles?.name?.split(" ")[0] ?? "—"}</div><div className="l">Perfil</div></div>
+              </div>
+
+              <div onClick={(e) => e.preventDefault()}>
+                {c.enabled ? (
+                  <button className="btn-mini pause" disabled={busyId === c.id}
+                    onClick={() => toggleClient(c.id, false)}>⏸ Pausar</button>
+                ) : (
+                  <button className="btn-mini play"
+                    disabled={busyId === c.id || c.key_status !== "valid" || !c.risk_profile_id}
+                    title={c.key_status !== "valid" ? "Sin claves válidas" : !c.risk_profile_id ? "Sin perfil de riesgo" : "Activar"}
+                    onClick={() => toggleClient(c.id, true)}>▶ Activar</button>
+                )}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+
+      <details className="card">
+        <summary>Estado del bot (últimas barras)</summary>
         {runs.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin ejecuciones registradas</div> : (
           <table>
             <thead><tr><th>Vela</th><th>Inicio</th><th>Clientes</th><th>OK</th><th>Fallos</th></tr></thead>
@@ -124,83 +179,10 @@ export default function Admin() {
           </table>
         )}
         <p className="note">Watchdog: cada 10 min Supabase comprueba la última ejecución; si supera el umbral (90 min) envía alerta por Telegram y registra el evento. Próximo corte mensual: {cutoff.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })} 00:00 UTC.</p>
-      </div>
+      </details>
 
-      <div className="card">
-        <h2>Usuarios ({clients.length})</h2>
-        <div style={{ overflowX: "auto" }}>
-          <table>
-            <thead><tr><th>Cliente</th><th>Perfil</th><th>Capital</th><th>PnL</th><th>%</th><th>Ingreso</th><th>Estado</th><th></th></tr></thead>
-            <tbody>
-              {clients.map((c) => {
-                const s = snaps.get(c.id);
-                const pnl = s && s.start_equity ? s.equity - s.start_equity : null;
-                const pnlPct = s && s.start_equity ? (s.equity / s.start_equity - 1) * 100 : null;
-                return (
-                  <>
-                  <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => togglePositions(c.id)}
-                    title={`${c.email ?? ""} · modo ${c.mode} · claves ${c.key_status}${s ? ` · DD ${fmtPct(s.dd_pct)}` : ""}`}>
-                    <td>{openId === c.id ? "▾ " : "▸ "}{c.name || c.id.slice(0, 8)}</td>
-                    <td>{c.risk_profiles?.name?.split(" ")[0] ?? "—"}</td>
-                    <td>{s ? `$${fmtUsd(s.equity, 0)}` : "—"}</td>
-                    <td className={pnlClass(pnl)}>{pnl == null ? "—" : fmtUsd(pnl, 0)}</td>
-                    <td className={pnlClass(pnlPct)}>{fmtPct(pnlPct, 1)}</td>
-                    <td>{new Date(c.created_at).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" })}</td>
-                    <td>
-                      <span className={`badge ${c.enabled ? "on" : "off"}`}>{c.enabled ? "ON" : "OFF"}</span>{" "}
-                      {c.activation_requested && !c.enabled && <span className="badge on">SOLICITA ALTA</span>}{" "}
-                      {c.key_status !== "valid" && <span className="badge neutral">sin claves</span>}
-                      {c.mode === "testnet" && <span className="badge neutral">testnet</span>}
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {c.enabled ? (
-                        <button className="btn-mini pause" disabled={busyId === c.id}
-                          onClick={() => toggleClient(c.id, false)}>⏸</button>
-                      ) : (
-                        <button className="btn-mini play"
-                          disabled={busyId === c.id || c.key_status !== "valid" || !c.risk_profile_id}
-                          title={c.key_status !== "valid" ? "Sin claves válidas" : !c.risk_profile_id ? "Sin perfil de riesgo" : "Activar"}
-                          onClick={() => toggleClient(c.id, true)}>▶</button>
-                      )}
-                    </td>
-                  </tr>
-                  {openId === c.id && (
-                    <tr key={c.id + "_pos"}>
-                      <td colSpan={8} style={{ background: "var(--panel2)", padding: "10px 14px" }}>
-                        {openPos.length === 0
-                          ? <span className="muted" style={{ fontSize: 12 }}>Sin posiciones abiertas</span>
-                          : (
-                            <table>
-                              <thead><tr><th>Activo</th><th>Lado</th><th>Tamaño</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th></tr></thead>
-                              <tbody>
-                                {openPos.map((p) => (
-                                  <tr key={p.symbol}>
-                                    <td>{p.symbol.replace("USDT", "")}</td>
-                                    <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
-                                    <td>{p.pos_amt}</td>
-                                    <td>{fmtUsd(Math.abs(p.pos_amt * p.price), 0)}</td>
-                                    <td>{fmtUsd(p.entry_price)}</td>
-                                    <td>{fmtUsd(p.price)}</td>
-                                    <td className={pnlClass(p.unrealized_pnl)}>{fmtUsd(p.unrealized_pnl)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          )}
-                      </td>
-                    </tr>
-                  )}
-                  </>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="note">Pasa el mouse por una fila para ver email, modo, estado de claves y drawdown. Corte de todos los clientes: día 1 del mes siguiente, 00:00 UTC.</p>
-      </div>
-
-      <div className="card">
-        <h2>Eventos recientes</h2>
+      <details className="card" open>
+        <summary>Eventos recientes</summary>
         {events.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin eventos</div> : (
           <table>
             <thead><tr><th>Fecha</th><th>Cliente</th><th>Evento</th><th style={{ textAlign: "left" }}>Detalle</th></tr></thead>
@@ -222,7 +204,7 @@ export default function Admin() {
             </tbody>
           </table>
         )}
-      </div>
+      </details>
     </>
   );
 }

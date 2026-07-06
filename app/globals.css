@@ -89,9 +89,39 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .badge.off { background: rgba(224, 93, 117, .12); color: var(--red); border: 1px solid var(--red); }
 .badge.neutral { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
 
-.tabs { display: flex; gap: 6px; margin-bottom: 14px; }
-.tab { flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 9px 0; border-radius: 9px; cursor: pointer; font-size: 13px; text-align: center; }
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; overflow-x: auto; }
+.tab { flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 9px 0; border-radius: 9px; cursor: pointer; font-size: 13px; text-align: center; white-space: nowrap; }
 .tab.active { background: var(--accent); color: var(--accent-ink); font-weight: 600; border-color: var(--accent); }
+
+.admin-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 14px; }
+@media (min-width: 720px) { .admin-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1080px) { .admin-grid { grid-template-columns: 1fr 1fr 1fr; } }
+
+.client-card {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px 18px; cursor: pointer; transition: border-color .15s;
+}
+.client-card:hover { border-color: var(--accent); }
+.cc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.cc-name { font-size: 15px; font-weight: 700; }
+.cc-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.cc-equity { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cc-pnl { font-size: 13px; font-weight: 600; margin-top: 2px; }
+
+.mini-metrics { display: flex; gap: 14px; flex-wrap: wrap; }
+.mini-metrics .mm { display: flex; flex-direction: column; gap: 2px; }
+.mini-metrics .mm .v { font-weight: 700; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.mini-metrics .mm .l { color: var(--muted); text-transform: uppercase; letter-spacing: .03em; font-size: 10px; }
+
+details.card summary {
+  cursor: pointer; list-style: none; font-size: 12.5px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); font-weight: 600; margin: 0 0 12px;
+}
+details.card summary::-webkit-details-marker { display: none; }
+details.card summary::before { content: "▸ "; }
+details.card[open] summary::before { content: "▾ "; }
+details.card[open] summary { margin-bottom: 12px; }
 
 .bottomnav {
   position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h); z-index: 50;
