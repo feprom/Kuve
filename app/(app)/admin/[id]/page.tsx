@@ -14,7 +14,7 @@ type Client = {
 };
 type Profile = { id: number; name: string };
 type Snap = {
-  ts: string; equity: number; wallet_balance: number; unrealized_pnl: number;
+  ts: string; bar_time: string; equity: number; wallet_balance: number; unrealized_pnl: number;
   margin_used: number; exposure_notional: number; dd_pct: number; realized_cum: number;
   start_equity: number; n_trades: number;
 };
@@ -82,23 +82,32 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
     setClient(cli);
     setProfiles(p.data ?? []);
 
-    const [s, b, pos, t, o, e, r] = await Promise.all([
-      sb.from("account_snapshots")
-        .select("ts, equity, wallet_balance, unrealized_pnl, margin_used, exposure_notional, dd_pct, realized_cum, start_equity, n_trades")
-        .eq("client_id", id).order("ts", { ascending: true }).limit(6000),
+    // Fetch the account history first so we know the exact bar_time of the
+    // latest snapshot — positions are then pinned to that same bar, so the
+    // "Resumen" and "Posiciones" tabs can never disagree about which vela
+    // they're showing.
+    const s = await sb.from("account_snapshots")
+      .select("ts, bar_time, equity, wallet_balance, unrealized_pnl, margin_used, exposure_notional, dd_pct, realized_cum, start_equity, n_trades")
+      .eq("client_id", id).order("ts", { ascending: true }).limit(6000);
+    const snapRows = (s.data ?? []) as Snap[];
+    const lastSnap = snapRows[snapRows.length - 1];
+
+    const [b, pos, t, o, e, r] = await Promise.all([
       cli?.risk_profile_id
         ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", cli.risk_profile_id).order("date", { ascending: true })
         : Promise.resolve({ data: [] as Bench[] }),
-      sb.from("positions").select("id, symbol, side, pos_amt, price, entry_price, unrealized_pnl")
-        .eq("client_id", id).order("id", { ascending: false }).limit(500),
+      lastSnap?.bar_time
+        ? sb.from("positions").select("id, symbol, side, pos_amt, price, entry_price, unrealized_pnl")
+            .eq("client_id", id).eq("bar_time", lastSnap.bar_time).order("id", { ascending: false })
+        : Promise.resolve({ data: [] as Pos[] }),
       sb.from("trades").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(300),
       sb.from("orders").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(300),
       sb.from("events").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(150),
       sb.from("client_monthly_reports").select("*").eq("client_id", id).order("period_start", { ascending: false }),
     ]);
-    setSnaps(s.data ?? []);
+    setSnaps(snapRows);
     setBench((b as any).data ?? []);
-    setPositions(dedupeBySymbol((pos.data ?? []).filter((row: Pos) => row.pos_amt !== 0)));
+    setPositions(dedupeBySymbol(((pos as any).data ?? []).filter((row: Pos) => row.pos_amt !== 0)));
     setTrades(t.data ?? []);
     setOrders(o.data ?? []);
     setEvents(e.data ?? []);
@@ -229,16 +238,20 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
               <div className="metric"><div className={`v ${pnlClass(pnlAbs)}`}>{fmtUsd(pnlAbs)}</div><div className="l">PnL total</div></div>
               <div className="metric"><div className={`v ${pnlClass(totalPct)}`}>{fmtPct(totalPct)}</div><div className="l">PnL total %</div></div>
               <div className="metric"><div className={`v ${pnlClass(last.realized_cum)}`}>{fmtUsd(last.realized_cum)}</div><div className="l">Realizado</div></div>
+              <div className="metric"><div className={`v ${pnlClass(last.unrealized_pnl)}`}>{fmtUsd(last.unrealized_pnl)}</div><div className="l">No realizado (posiciones)</div></div>
               <div className="metric"><div className="v">{fmtPct(last.dd_pct, 1)}</div><div className="l">Drawdown</div></div>
               <div className="metric"><div className="v">${fmtUsd(last.exposure_notional, 0)}</div><div className="l">Exposición</div></div>
               <div className="metric"><div className="v">${fmtUsd(last.margin_used, 0)}</div><div className="l">Margen usado</div></div>
               <div className="metric"><div className="v">{last.n_trades ?? 0}</div><div className="l">Trades</div></div>
             </div>
+            <p className="note">Todas las cifras de esta pestaña y de "Posiciones" corresponden a la misma última vela ({fmtDate(last.ts)}).
+              "PnL total" es equity menos capital inicial (incluye todo el historial de la cuenta desde el ingreso: realizado + no realizado + comisiones/financiamiento).
+              Si no coincide con la suma de "Realizado" y "No realizado", la diferencia proviene de movimientos anteriores de la cuenta (comisiones o financiamiento del exchange) que no quedan registrados como trade.</p>
             <div className="card">
               <h2>Estrategia vs cuenta del cliente (YTD, en %)</h2>
               <PerfChart series={series} markerX={entryTs} markerLabel="Entrada" />
               <p className="note">Verde: la estrategia KV-9014 con el perfil del cliente, del 1 de enero a hoy.
-                Azul: la cuenta real del cliente, anclada al nivel de la estrategia en su fecha de entrada.</p>
+                Azul: la cuenta real del cliente, anclada al nivel de la estrategia en su fecha de entrada. Este gráfico conserva todo el histórico (no se fija a la última vela).</p>
             </div>
           </>
         )
@@ -246,7 +259,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
 
       {tab === "posiciones" && (
         <div className="card">
-          <h2>Posiciones abiertas ({positions.length})</h2>
+          <h2>Posiciones abiertas ({positions.length}){last && ` · vela ${fmtDate(last.ts)}`}</h2>
           {positions.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin posiciones abiertas</div> : (
             <div style={{ overflowX: "auto" }}>
               <table>
