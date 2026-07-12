@@ -183,6 +183,12 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const pnlShow = pnlAbs == null ? null : pnlAbs + adjVivo;
   const totalPctShow = start && pnlShow != null ? (pnlShow / start) * 100 : null;
   const upnlShow = enVivo ? upnlLiveTot : snap.unrealized_pnl;
+  // el drawdown máximo también considera el valor en vivo de este momento
+  if (pnlShow != null && start) {
+    const eqNow = start + pnlShow;
+    peak = Math.max(peak, eqNow);
+    if (peak > 0) ddBot = Math.min(ddBot, (eqNow / peak - 1) * 100);
+  }
 
   const leverage = equityShow ? expLive / equityShow : null;
   const freeUsdt = Math.max(0, equityShow - (snap.margin_used ?? 0));
@@ -233,15 +239,72 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     ...(clientPts.length > 1 ? [{ label: esAdmin ? "Cuenta del cliente (bot)" : "Tu cuenta (bot)", color: "var(--accent)", points: clientPts }] : []),
   ].filter((s) => s.points.length > 1);
 
+  // ---- RESUMEN DE LA SEMANA (auto, últimos 7 días, con los datos en vivo) ----
+  const weekStartTs = Date.now() - 7 * 86400e3;
+  const preWeek = snaps.filter((s) => new Date(s.ts).getTime() < weekStartTs);
+  const eqBase = preWeek.length ? preWeek[preWeek.length - 1].equity : (snaps[0]?.equity ?? null);
+  const pnlSemana = eqBase != null ? equityShow - eqBase : null;
+  const pnlSemanaPct = eqBase ? (pnlSemana! / eqBase) * 100 : null;
+  const wTrades = trades.filter((t) => new Date(t.ts).getTime() >= weekStartTs);
+  const wCierres = wTrades.filter((t) => t.profit);
+  const wGan = wCierres.filter((t) => t.profit > 0);
+  const wPer = wCierres.filter((t) => t.profit < 0);
+  const wRealizado = wCierres.reduce((a, t) => a + t.profit, 0);
+  const wAperturas = Array.from(new Set(wTrades.filter((t) => !t.profit).map((t) => t.symbol?.replace("USDT", ""))));
+  const posCierre = positions.filter((p) => {
+    const sg = sigBySym.get(p.symbol);
+    return sg && sg.side !== (p.pos_amt > 0 ? 1 : -1);
+  });
+  const posCerca = positions.filter((p) => {
+    const lvx = levels[p.symbol]; if (!lvx) return false;
+    const px = live[p.symbol] ?? p.price;
+    const d = (p.pos_amt < 0 ? lvx.slEff / px - 1 : 1 - lvx.slEff / px) * 100;
+    return d > 0 && d < 2;
+  });
+  const fEs = (t: number) => new Date(t).toLocaleDateString("es-ES", { day: "numeric", month: "long" });
+
   return (
     <>
+      {/* ============ RESUMEN DE LA SEMANA ============ */}
+      {snaps.length > 1 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <h2>Resumen de la semana · {fEs(weekStartTs)} – {fEs(Date.now())} de {new Date().getFullYear()}</h2>
+          <p style={{ fontSize: 14, lineHeight: 1.65, margin: "10px 0 0" }}>
+            La cuenta {pnlSemana != null && pnlSemana >= 0 ? "ganó" : "perdió"}{" "}
+            <b className={pnlClass(pnlSemana)}>{fmtUsd(pnlSemana)} ({fmtPct(pnlSemanaPct)})</b> en los últimos 7 días.
+            {wAperturas.length > 0 && <> Se abrieron <b>{wAperturas.length}</b> posiciones ({wAperturas.join(", ")}).</>}
+            {wCierres.length > 0 && <> Se cerraron <b>{wCierres.length}</b>: {wGan.length} ganadora{wGan.length === 1 ? "" : "s"} y{" "}
+              {wPer.length} perdedora{wPer.length === 1 ? "" : "s"}, saldo realizado{" "}
+              <b className={pnlClass(wRealizado)}>{fmtUsd(wRealizado)}</b>.</>}
+            {wCierres.length === 0 && <> No hubo cierres en la semana.</>}
+            {" "}Ahora corren <b>{positions.length}</b> posiciones con{" "}
+            <b className={pnlClass(upnlLiveTot)}>{fmtUsd(upnlLiveTot)}</b> no realizado{enVivo ? " (en vivo)" : ""}.
+          </p>
+          <p style={{ fontSize: 14, lineHeight: 1.65, margin: "8px 0 0" }}>
+            <b>Qué esperar:</b>{" "}
+            {posCierre.length > 0 && <>{posCierre.map((p) => p.symbol.replace("USDT", "")).join(", ")}{" "}
+              {posCierre.length === 1 ? "sale" : "salen"} en la próxima vela por señal del motor. </>}
+            {posCerca.length > 0 && <>{posCerca.map((p) => p.symbol.replace("USDT", "")).join(", ")}{" "}
+              {posCerca.length === 1 ? "corre" : "corren"} a menos del 2% de su stop y{" "}
+              {posCerca.length === 1 ? "podría salir" : "podrían salir"} en los próximos días si el precio no acompaña. </>}
+            {posCierre.length === 0 && posCerca.length === 0 && positions.length > 0 &&
+              <>Ninguna posición está en señal de cierre ni pegada a su stop. </>}
+            El resto sigue con trailing: sin take-profit fijo, cada salida depende de que el precio toque su SL,
+            que solo se mueve a favor.
+          </p>
+        </div>
+      )}
+
       {/* ============ LO IMPORTANTE ============ */}
       <div className="metric-row">
         <div className="metric"><div className="v">${fmtUsd(equityShow)}</div><div className="l">Equity{enVivo ? " · en vivo" : ""}</div></div>
         <div className="metric"><div className={`v ${pnlClass(pnlShow)}`}>{fmtUsd(pnlShow)}</div><div className="l">PnL total (bot){enVivo ? " · en vivo" : ""}</div></div>
         <div className="metric"><div className={`v ${pnlClass(totalPctShow)}`}>{fmtPct(totalPctShow)}</div><div className="l">PnL total %{enVivo ? " · en vivo" : ""}</div></div>
         <div className="metric"><div className={`v ${pnlClass(upnlShow)}`}>{fmtUsd(upnlShow)}</div><div className="l">No realizado (posiciones){enVivo ? " · en vivo" : ""}</div></div>
-        <div className="metric"><div className={`v ${pnlClass(ddBot)}`}>{fmtPct(ddBot, 1)}</div><div className="l">Drawdown (bot, por vela)</div></div>
+        <div className="metric"
+          title="La mayor caída desde el punto más alto que tocó la cuenta (no desde el capital inicial). Puede ser mayor que el PnL total: la cuenta primero subió a un pico y luego bajó. Ej.: sube +1% y luego cae a −2.5% → drawdown −3.5%.">
+          <div className={`v ${pnlClass(ddBot)}`}>{fmtPct(ddBot, 1)}</div><div className="l">Drawdown máx. (desde el pico)</div>
+        </div>
       </div>
 
       {/* ============ SEGUNDO PLANO ============ */}
