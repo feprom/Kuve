@@ -31,7 +31,14 @@ type Report = {
 };
 
 type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string; created_at: string };
-type Income = { mercado: number; comisiones: number; funding: number; transfers: number; hasta: string | null };
+type Income = {
+  mercado: number;        // cierres atribuibles al bot
+  heredado: number;       // cierres de posiciones previas al bot (excluidos del PnL del bot)
+  comisiones: number;     // comisiones de fills del bot
+  funding: number;        // funding de las posiciones gestionadas
+  transfers: number;
+  hasta: string | null;
+};
 
 type Tab = "resumen" | "posiciones" | "historial" | "eventos" | "cortes";
 
@@ -119,18 +126,35 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
       sb.from("client_monthly_reports").select("*").eq("client_id", id).order("period_start", { ascending: false }),
       sb.from("strategy_signals").select("*").eq("variant", variant).order("bar_time", { ascending: false }).limit(8),
       snapRows[0]?.ts
-        ? sb.from("account_income").select("income_type, income, ts").eq("client_id", id).gte("ts", snapRows[0].ts).limit(5000)
+        ? sb.from("account_income").select("income_type, income, ts, symbol").eq("client_id", id).gte("ts", snapRows[0].ts).limit(5000)
         : Promise.resolve({ data: [] as any[] }),
     ]);
-    // Realizado según el LEDGER de Binance (desde el ingreso del cliente):
-    // mercado + comisiones completas + funding; transfers aparte.
+    // Realizado según el LEDGER de Binance, ATRIBUIDO AL BOT: un cierre cuenta
+    // solo si el bot registró antes la apertura de esa posición (trade con
+    // profit=0 del mismo símbolo, al menos 2 min antes del fill). Los cierres
+    // de posiciones previas al bot (heredadas/adoptadas) se separan en
+    // "heredado" y NO entran al PnL del bot.
     {
-      const rows = ((inc as any).data ?? []) as { income_type: string; income: number; ts: string }[];
-      const sum = (t: string) => rows.filter((x) => x.income_type === t).reduce((a, x) => a + Number(x.income || 0), 0);
-      setIncome({
-        mercado: sum("REALIZED_PNL"), comisiones: sum("COMMISSION"), funding: sum("FUNDING_FEE"),
-        transfers: sum("TRANSFER"), hasta: rows.length ? rows.map((x) => x.ts).sort().slice(-1)[0] : null,
-      });
+      const rows = ((inc as any).data ?? []) as { income_type: string; income: number; ts: string; symbol: string | null }[];
+      const botTrades = ((t as any).data ?? []) as Trade[];
+      const opensBefore = (sym: string | null, ts: string, marginMs: number) =>
+        !!sym && botTrades.some((tr) => tr.symbol === sym && !tr.profit && new Date(tr.ts).getTime() < new Date(ts).getTime() - marginMs);
+      const nearTrade = (sym: string | null, ts: string, winMs: number) =>
+        !!sym && botTrades.some((tr) => tr.symbol === sym && Math.abs(new Date(tr.ts).getTime() - new Date(ts).getTime()) <= winMs);
+      let mercado = 0, heredado = 0, comisiones = 0, funding = 0, transfers = 0;
+      for (const x of rows) {
+        const v = Number(x.income || 0);
+        if (x.income_type === "REALIZED_PNL") {
+          if (opensBefore(x.symbol, x.ts, 120e3)) mercado += v; else heredado += v;
+        } else if (x.income_type === "COMMISSION") {
+          if (nearTrade(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts, 120e3)) comisiones += v;
+        } else if (x.income_type === "FUNDING_FEE") funding += v;
+        else if (x.income_type === "TRANSFER") transfers += v;
+      }
+      // Sin filas en el ledger (sync aun no corrido para este cliente) ->
+      // income = null y la UI cae al contador del bot en vez de mostrar ceros.
+      setIncome(rows.length ? { mercado, heredado, comisiones, funding, transfers,
+        hasta: rows.map((x) => x.ts).sort().slice(-1)[0] } : null);
     }
     setSignals(((sig as any).data ?? []) as Signal[]);
     setSnaps(snapRows);
@@ -190,8 +214,12 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
   if (loading || !client) return <div className="muted">Cargando…</div>;
 
   const last = snaps[snaps.length - 1];
-  const totalPct = last?.start_equity ? (last.equity / last.start_equity - 1) * 100 : null;
-  const pnlAbs = last?.start_equity ? last.equity - last.start_equity : null;
+  // PnL de la CUENTA (equity - capital inicial): incluye tambien lo heredado.
+  const cuentaAbs = last?.start_equity ? last.equity - last.start_equity : null;
+  // PnL DEL BOT: solo operaciones abiertas/gestionadas por el bot desde su inicio.
+  const realizadoBot = income ? income.mercado + income.comisiones + income.funding : null;
+  const pnlAbs = income != null && last ? (realizadoBot as number) + (last.unrealized_pnl ?? 0) : cuentaAbs;
+  const totalPct = last?.start_equity && pnlAbs != null ? (pnlAbs / last.start_equity) * 100 : null;
 
   const stratPts = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index - 100 }));
   const entryTs = snaps.length ? new Date(snaps[0].ts).getTime() : null;
@@ -284,10 +312,10 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
           <>
             <div className="metric-row">
               <div className="metric"><div className="v">${fmtUsd(last.equity)}</div><div className="l">Equity</div></div>
-              <div className="metric"><div className={`v ${pnlClass(pnlAbs)}`}>{fmtUsd(pnlAbs)}</div><div className="l">PnL total</div></div>
+              <div className="metric"><div className={`v ${pnlClass(pnlAbs)}`}>{fmtUsd(pnlAbs)}</div><div className="l">PnL total (bot)</div></div>
               <div className="metric"><div className={`v ${pnlClass(totalPct)}`}>{fmtPct(totalPct)}</div><div className="l">PnL total %</div></div>
               {income ? (
-                <div className="metric"><div className={`v ${pnlClass(income.mercado + income.comisiones + income.funding)}`}>{fmtUsd(income.mercado + income.comisiones + income.funding)}</div><div className="l">Realizado neto (ledger)</div></div>
+                <div className="metric"><div className={`v ${pnlClass(realizadoBot)}`}>{fmtUsd(realizadoBot)}</div><div className="l">Realizado neto (bot)</div></div>
               ) : (
                 <div className="metric"><div className={`v ${pnlClass(last.realized_cum)}`}>{fmtUsd(last.realized_cum)}</div><div className="l">Realizado (bot)</div></div>
               )}
@@ -299,19 +327,23 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
             </div>
             {income && (
               <div className="metric-row">
-                <div className="metric"><div className={`v ${pnlClass(income.mercado)}`}>{fmtUsd(income.mercado)}</div><div className="l">Mercado (cierres)</div></div>
+                <div className="metric"><div className={`v ${pnlClass(income.mercado)}`}>{fmtUsd(income.mercado)}</div><div className="l">Mercado (cierres del bot)</div></div>
                 <div className="metric"><div className={`v ${pnlClass(income.comisiones)}`}>{fmtUsd(income.comisiones)}</div><div className="l">Comisiones</div></div>
                 <div className="metric"><div className={`v ${pnlClass(income.funding)}`}>{fmtUsd(income.funding)}</div><div className="l">Funding</div></div>
-                {income.transfers !== 0 && (
-                  <div className="metric"><div className="v">{fmtUsd(income.transfers)}</div><div className="l">Depósitos/retiros (desde ingreso)</div></div>
+                {income.heredado !== 0 && (
+                  <div className="metric"><div className="v muted">{fmtUsd(income.heredado)}</div><div className="l">Posiciones previas al bot (excluido)</div></div>
+                )}
+                {cuentaAbs != null && (
+                  <div className="metric"><div className={`v ${pnlClass(cuentaAbs)}`}>{fmtUsd(cuentaAbs)}</div><div className="l">PnL cuenta completa (equity − inicial)</div></div>
                 )}
               </div>
             )}
             <p className="note">Cifras de esta pestaña y de "Posiciones": última vela ({fmtDate(last.ts)}).
-              "PnL total" = equity − capital inicial. Debe cuadrar como: <b>Realizado neto (ledger) + No realizado{income && income.transfers !== 0 ? " + depósitos/retiros" : ""}</b>.
-              El "Realizado neto" viene del ledger de Binance desde el ingreso del cliente e incluye mercado + comisiones completas + funding
-              {income?.hasta ? ` (sincronizado hasta ${fmtDate(income.hasta)}; el residuo frente al PnL total son fills posteriores aún no sincronizados)` : ""}.
-              El contador "Realizado" del bot solo suma los cierres que él registró (sin funding ni todas las comisiones) — por eso antes no cuadraba.</p>
+              <b>"PnL total (bot)" mide solo lo que el bot operó desde su inicio</b>: mercado (cierres de posiciones que el bot abrió)
+              + comisiones + funding + no realizado. Los cierres de posiciones que ya existían en la cuenta antes de activar el bot
+              se muestran aparte como "Posiciones previas al bot" y NO se cuentan. "PnL cuenta completa" = equity − capital inicial
+              (ahí sí entra todo, incluido lo heredado{income && income.transfers !== 0 ? " y depósitos/retiros" : ""}).
+              {income?.hasta ? ` Ledger sincronizado hasta ${fmtDate(income.hasta)}; los fills posteriores aparecen al correr el sync.` : ""}</p>
             <div className="card">
               <h2>Estrategia vs cuenta del cliente (YTD, en %)</h2>
               <PerfChart series={series} markerX={entryTs} markerLabel="Entrada" />
