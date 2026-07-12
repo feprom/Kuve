@@ -9,6 +9,7 @@
  */
 export type IncomeRow = { income_type: string; income: number; ts: string; symbol: string | null };
 export type BotTradeLike = { symbol: string | null; ts: string; profit: number | null };
+export type BotOrderLike = { symbol: string | null; ts: string; reduce_only: boolean | null };
 
 export type Attribution = {
   mercado: number;      // cierres atribuibles al bot
@@ -21,14 +22,29 @@ export type Attribution = {
   hasta: string | null;  // último fill sincronizado
 };
 
-export function attributeIncome(rows: IncomeRow[], botTrades: BotTradeLike[]): Attribution | null {
+export function attributeIncome(
+  rows: IncomeRow[],
+  botTrades: BotTradeLike[],
+  botOrders: BotOrderLike[] = [],
+): Attribution | null {
   if (!rows.length) return null;
+  // "el bot abrió antes": trades con profit=0 U órdenes filled NO reduceOnly.
+  // Las órdenes son la fuente robusta — el trade puede faltar si el reporte de
+  // fills falló (visto con SOL de Roberto, 2026-07-12), la orden nunca falta.
+  const opens = [
+    ...botTrades.filter((t) => !t.profit).map((t) => ({ symbol: t.symbol, ts: t.ts })),
+    ...botOrders.filter((o) => !o.reduce_only).map((o) => ({ symbol: o.symbol, ts: o.ts })),
+  ];
+  const activity = [
+    ...botTrades.map((t) => ({ symbol: t.symbol, ts: t.ts })),
+    ...botOrders.map((o) => ({ symbol: o.symbol, ts: o.ts })),
+  ];
   const opensBefore = (sym: string | null, ts: string, marginMs: number) =>
-    !!sym && botTrades.some((tr) => tr.symbol === sym && !tr.profit &&
-      new Date(tr.ts).getTime() < new Date(ts).getTime() - marginMs);
+    !!sym && opens.some((x) => x.symbol === sym &&
+      new Date(x.ts).getTime() < new Date(ts).getTime() - marginMs);
   const nearTrade = (sym: string | null, ts: string, winMs: number) =>
-    !!sym && botTrades.some((tr) => tr.symbol === sym &&
-      Math.abs(new Date(tr.ts).getTime() - new Date(ts).getTime()) <= winMs);
+    !!sym && activity.some((x) => x.symbol === sym &&
+      Math.abs(new Date(x.ts).getTime() - new Date(ts).getTime()) <= winMs);
   let mercado = 0, heredado = 0, comisiones = 0, funding = 0, transfers = 0;
   const heredadoFills: { ts: string; usd: number }[] = [];
   for (const x of rows) {

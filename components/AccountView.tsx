@@ -69,7 +69,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         .eq("client_id", client.id).order("ts", { ascending: true }).limit(6000);
       const snapRows = (s ?? []) as Snap[];
       const latest = snapRows[snapRows.length - 1];
-      const [b, sig, t, p, inc] = await Promise.all([
+      const [b, sig, t, p, inc, ord] = await Promise.all([
         client.risk_profile_id
           ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", client.risk_profile_id).order("date", { ascending: true })
           : Promise.resolve({ data: [] as any[] }),
@@ -81,6 +81,8 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         snapRows[0]?.ts
           ? sb.from("account_income").select("income_type, income, ts, symbol").eq("client_id", client.id).gte("ts", snapRows[0].ts).limit(5000)
           : Promise.resolve({ data: [] as any[] }),
+        sb.from("orders").select("symbol, ts, reduce_only").eq("client_id", client.id)
+          .eq("status", "filled").order("ts", { ascending: false }).limit(1000),
       ]);
       if (!alive) return;
       setSnaps(snapRows);
@@ -88,7 +90,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
       setSignals(((sig as any).data ?? []) as Signal[]);
       setTrades(((t as any).data ?? []) as Trade[]);
       setPositions(dedupeBySymbol((((p as any).data ?? []) as Pos[]).filter((r) => r.pos_amt !== 0)));
-      setIncome(attributeIncome(((inc as any).data ?? []), ((t as any).data ?? [])));
+      setIncome(attributeIncome(((inc as any).data ?? []), ((t as any).data ?? []), ((ord as any).data ?? [])));
       setLoading(false);
     })();
     return () => { alive = false; };
@@ -166,10 +168,25 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   }
   const cuentaAbs = start ? snap.equity - start : null;
 
-  const leverage = snap.equity ? snap.exposure_notional / snap.equity : null;
-  const freeUsdt = Math.max(0, snap.equity - (snap.margin_used ?? 0));
-  const marginPct = snap.equity ? ((snap.margin_used ?? 0) / snap.equity) * 100 : null;
-  const slices = positions.map((p) => ({ label: p.symbol, value: Math.abs(p.pos_amt * p.price), side: p.side }));
+  // ---- EN VIVO (15 s): un solo dato para métricas, tabla y composición ----
+  const enVivo = Object.keys(live).length > 0;
+  const pxOf = (p: Pos) => live[p.symbol] ?? p.price;
+  const upnlLiveTot = positions.reduce((a, p) =>
+    a + (p.entry_price ? p.pos_amt * (pxOf(p) - p.entry_price) : (p.unrealized_pnl ?? 0)), 0);
+  const expLive = positions.reduce((a, p) => a + Math.abs(p.pos_amt * pxOf(p)), 0);
+  const adjVivo = enVivo ? upnlLiveTot - (snap.unrealized_pnl ?? 0) : 0;
+  const equityShow = snap.equity + adjVivo;
+  const pnlShow = pnlAbs == null ? null : pnlAbs + adjVivo;
+  const totalPctShow = start && pnlShow != null ? (pnlShow / start) * 100 : null;
+  const upnlShow = enVivo ? upnlLiveTot : snap.unrealized_pnl;
+
+  const leverage = equityShow ? expLive / equityShow : null;
+  const freeUsdt = Math.max(0, equityShow - (snap.margin_used ?? 0));
+  const marginPct = equityShow ? ((snap.margin_used ?? 0) / equityShow) * 100 : null;
+  const slices = positions.map((p) => ({
+    label: p.symbol, value: Math.abs(p.pos_amt * pxOf(p)), side: p.side,
+    pnl: p.entry_price ? p.pos_amt * (pxOf(p) - p.entry_price) : p.unrealized_pnl,
+  }));
   const openSyms = new Set(positions.map((p) => p.symbol));
   const pending = signals.filter((s) => !openSyms.has(s.symbol)).sort((a, b) => a.symbol.localeCompare(b.symbol));
   // última señal del motor por símbolo (variante del perfil): fuente de verdad
@@ -216,11 +233,11 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     <>
       {/* ============ LO IMPORTANTE ============ */}
       <div className="metric-row">
-        <div className="metric"><div className="v">${fmtUsd(snap.equity)}</div><div className="l">Equity</div></div>
-        <div className="metric"><div className={`v ${pnlClass(pnlAbs)}`}>{fmtUsd(pnlAbs)}</div><div className="l">PnL total (bot)</div></div>
-        <div className="metric"><div className={`v ${pnlClass(totalPct)}`}>{fmtPct(totalPct)}</div><div className="l">PnL total %</div></div>
-        <div className="metric"><div className={`v ${pnlClass(snap.unrealized_pnl)}`}>{fmtUsd(snap.unrealized_pnl)}</div><div className="l">No realizado (posiciones)</div></div>
-        <div className="metric"><div className={`v ${pnlClass(ddBot)}`}>{fmtPct(ddBot, 1)}</div><div className="l">Drawdown (bot)</div></div>
+        <div className="metric"><div className="v">${fmtUsd(equityShow)}</div><div className="l">Equity{enVivo ? " · en vivo" : ""}</div></div>
+        <div className="metric"><div className={`v ${pnlClass(pnlShow)}`}>{fmtUsd(pnlShow)}</div><div className="l">PnL total (bot){enVivo ? " · en vivo" : ""}</div></div>
+        <div className="metric"><div className={`v ${pnlClass(totalPctShow)}`}>{fmtPct(totalPctShow)}</div><div className="l">PnL total %{enVivo ? " · en vivo" : ""}</div></div>
+        <div className="metric"><div className={`v ${pnlClass(upnlShow)}`}>{fmtUsd(upnlShow)}</div><div className="l">No realizado (posiciones){enVivo ? " · en vivo" : ""}</div></div>
+        <div className="metric"><div className={`v ${pnlClass(ddBot)}`}>{fmtPct(ddBot, 1)}</div><div className="l">Drawdown (bot, por vela)</div></div>
       </div>
 
       {/* ============ SEGUNDO PLANO ============ */}
@@ -257,7 +274,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
       {series.length > 0 && (
         <div className="card">
           <h2>Estrategia vs cuenta · {profName}
-            {totalPct != null && <span className={pnlClass(totalPct)} style={{ marginLeft: 8 }}>{fmtPct(totalPct)}</span>}
+            {totalPctShow != null && <span className={pnlClass(totalPctShow)} style={{ marginLeft: 8 }}>{fmtPct(totalPctShow)}</span>}
             <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, float: "right" }}>
               {([["3m", "3M"], ["ytd", "YTD"], ["entrada", "Entrada"]] as const).map(([k, lbl]) => (
                 <button key={k} className="btn-mini" onClick={() => setRango(k)}
@@ -343,6 +360,20 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
                     </tr>
                   );
                 })}
+                {positions.length > 1 && (() => {
+                  const entryNotTot = positions.reduce((a, p) => a + Math.abs(p.pos_amt * (p.entry_price || pxOf(p))), 0);
+                  const pctTot = entryNotTot ? (upnlLiveTot / entryNotTot) * 100 : null;
+                  return (
+                    <tr style={{ borderTop: "2px solid var(--border)", fontWeight: 700 }}>
+                      <td colSpan={2} style={{ textAlign: "left" }}>TOTAL</td>
+                      <td>{fmtUsd(expLive, 0)}</td>
+                      <td></td><td></td>
+                      <td className={pnlClass(upnlLiveTot)}>{fmtUsd(upnlLiveTot)}</td>
+                      <td className={pnlClass(pctTot)}>{fmtPct(pctTot)}</td>
+                      <td colSpan={4}></td>
+                    </tr>
+                  );
+                })()}
               </tbody>
             </table>
           </div>
@@ -386,13 +417,19 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
 
       {/* ============ COMPOSICIÓN ============ */}
       <div className="card">
-        <h2>Composición de la exposición</h2>
+        <h2>Composición de la exposición
+          {enVivo && <span className="badge on" style={{ marginLeft: 8 }}>en vivo · 15 s</span>}
+        </h2>
+        <div className="metric-row" style={{ marginTop: 10 }}>
+          <div className="metric"><div className="v">${fmtUsd(expLive, 0)}</div><div className="l">Exposición total</div></div>
+          <div className="metric"><div className={`v ${pnlClass(upnlLiveTot)}`}>{fmtUsd(upnlLiveTot)}</div><div className="l">uPnL posiciones</div></div>
+          <div className="metric"><div className="v">{leverage == null ? "—" : `x${leverage.toFixed(2)}`}</div><div className="l">Apalancamiento</div></div>
+          <div className="metric"><div className="v">${fmtUsd(freeUsdt, 0)}</div><div className="l">USDT libre ({marginPct == null ? "—" : (100 - marginPct).toFixed(0)}%)</div></div>
+        </div>
         <Donut slices={slices} />
-        <p className="note" style={{ marginTop: 12 }}>
-          Margen en uso: ${fmtUsd(snap.margin_used ?? 0, 0)} ({marginPct?.toFixed(1)}% del equity) · USDT libre: ${fmtUsd(freeUsdt, 0)}
-        </p>
-        <p className="note">En futuros el capital {tuyo} nunca se "gasta": el 100% permanece en USDT como colateral.
-          El gráfico muestra la exposición nocional por activo; ▲ largo (gana si sube), ▼ corto (gana si baja).</p>
+        <p className="note">Mismos precios en vivo que la tabla "Corriendo": la torta, la exposición y el uPnL siempre coinciden
+          con lo de arriba. En futuros el capital {tuyo} nunca se "gasta": el 100% permanece en USDT como colateral.
+          ▲ largo (gana si sube), ▼ corto (gana si baja).</p>
       </div>
     </>
   );

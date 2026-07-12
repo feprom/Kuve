@@ -4,7 +4,7 @@ import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Sparkline from "@/components/Sparkline";
-import { attributeIncome, Attribution, IncomeRow, BotTradeLike } from "@/lib/pnl";
+import { attributeIncome, Attribution, IncomeRow, BotTradeLike, BotOrderLike } from "@/lib/pnl";
 
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
 type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
@@ -47,7 +47,7 @@ export default function Admin() {
       const { data: adm } = await sb.from("admin_users").select("auth_uid").eq("auth_uid", user.id);
       if (!adm?.length) { setIsAdmin(false); return; }
       setIsAdmin(true);
-      const [r, c, s, e, inc, tr, ps] = await Promise.all([
+      const [r, c, s, e, inc, tr, ps, ord] = await Promise.all([
         sb.from("bot_runs").select("*").order("id", { ascending: false }).limit(12),
         sb.from("clients").select("*, risk_profiles(name)").order("created_at"),
         sb.from("account_snapshots")
@@ -59,6 +59,8 @@ export default function Admin() {
         sb.from("positions").select("id, client_id, bar_time, symbol, side, pos_amt, entry_price, price")
           .gte("bar_time", new Date(Date.now() - 26 * 3600e3).toISOString())
           .order("bar_time", { ascending: true }).limit(4000),
+        sb.from("orders").select("client_id, symbol, ts, reduce_only").eq("status", "filled")
+          .order("ts", { ascending: false }).limit(3000),
       ]);
       setRuns(r.data ?? []);
       setClients(c.data ?? []);
@@ -74,11 +76,13 @@ export default function Admin() {
       const attrib = new Map<string, Attribution | null>();
       const incRows = ((inc as any).data ?? []) as (IncomeRow & { client_id: string })[];
       const trRows = ((tr as any).data ?? []) as (BotTradeLike & { client_id: string })[];
+      const ordRows = ((ord as any).data ?? []) as (BotOrderLike & { client_id: string })[];
       for (const [cid, arr] of Array.from(byClient.entries())) {
         const t0 = arr[0] ? new Date(arr[0].ts).getTime() : 0;
         attrib.set(cid, attributeIncome(
           incRows.filter((x) => x.client_id === cid && new Date(x.ts).getTime() >= t0),
           trRows.filter((x) => x.client_id === cid),
+          ordRows.filter((x) => x.client_id === cid),
         ));
       }
       setAttribByClient(attrib);
@@ -151,21 +155,40 @@ export default function Admin() {
     return pts;
   };
 
+  // Estado EN VIVO de las posiciones de un cliente (precios cada 15 s)
+  const liveStatsOf = (id: string) => {
+    const poss = posByClient.get(id) ?? [];
+    if (!poss.length) return null;
+    let upnl = 0, exp = 0;
+    for (const p of poss) {
+      const px = livePx[p.symbol] ?? p.price;
+      exp += Math.abs(p.pos_amt * px);
+      if (p.entry_price) upnl += p.pos_amt * (px - p.entry_price);
+    }
+    return { upnl, exp, n: poss.length };
+  };
+
   // PnL atribuido al BOT — MISMA fórmula que la vista de la cuenta (AccountView):
-  // equity − capital inicial − cierres heredados (posiciones previas al bot).
-  // Así la tarjeta y el detalle muestran siempre el mismo número. El "realizado
-  // neto" del ledger se muestra aparte como mini-métrica (sincroniza con lag).
+  // equity − capital inicial − cierres heredados (posiciones previas al bot),
+  // ajustado con el uPnL EN VIVO para que tarjeta y detalle coincidan siempre.
   const pnlBotOf = (id: string): number | null => {
     const s = latestOf(id);
     if (!s || !s.start_equity) return null;
     const a = attribByClient.get(id);
-    return s.equity - s.start_equity - (a?.heredado ?? 0);
+    let v = s.equity - s.start_equity - (a?.heredado ?? 0);
+    const ls = liveStatsOf(id);
+    if (ls && s.unrealized_pnl != null) v += ls.upnl - s.unrealized_pnl;
+    return v;
   };
 
   const active = clients.filter((c) => c.enabled);
-  const aum = active.reduce((a, c) => a + (latestOf(c.id)?.equity ?? 0), 0);
+  const aum = active.reduce((a, c) => {
+    const s = latestOf(c.id); if (!s) return a;
+    const ls = liveStatsOf(c.id);
+    return a + s.equity + (ls && s.unrealized_pnl != null ? ls.upnl - s.unrealized_pnl : 0);
+  }, 0);
   const pnlTotal = active.reduce((a, c) => a + (pnlBotOf(c.id) ?? 0), 0);
-  const exposure = active.reduce((a, c) => a + (latestOf(c.id)?.exposure_notional ?? 0), 0);
+  const exposure = active.reduce((a, c) => a + (liveStatsOf(c.id)?.exp ?? latestOf(c.id)?.exposure_notional ?? 0), 0);
   const cutoff = nextCutoff();
 
   return (
@@ -245,8 +268,8 @@ export default function Admin() {
 
               <div className="mini-metrics">
                 <div className="mm"><div className={`v ${pnlClass(realizado)}`}>{realizado == null ? "—" : `$${fmtUsd(realizado, 0)}`}</div><div className="l">Realizado</div></div>
-                <div className="mm"><div className="v">${fmtUsd(s?.exposure_notional ?? null, 0)}</div><div className="l">Exposición</div></div>
-                <div className="mm"><div className="v">{s?.open_positions ?? "—"}</div><div className="l">Posiciones</div></div>
+                <div className="mm"><div className="v">${fmtUsd(liveStatsOf(c.id)?.exp ?? s?.exposure_notional ?? null, 0)}</div><div className="l">Exposición</div></div>
+                <div className="mm"><div className="v">{liveStatsOf(c.id)?.n ?? s?.open_positions ?? "—"}</div><div className="l">Posiciones</div></div>
                 <div className="mm"><div className={`v ${s ? pnlClass(-Math.abs(s.dd_pct)) : ""}`}>{s ? fmtPct(s.dd_pct, 1) : "—"}</div><div className="l">Drawdown</div></div>
                 <div className="mm"><div className="v">{c.risk_profiles?.name?.split(" ")[0] ?? "—"}</div><div className="l">Perfil</div></div>
               </div>

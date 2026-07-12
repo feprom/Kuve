@@ -1,7 +1,7 @@
 "use client";
-import { CHART_COLORS } from "@/lib/format";
+import { CHART_COLORS, fmtUsd, pnlClass } from "@/lib/format";
 
-export type Slice = { label: string; value: number; side?: "LARGO" | "CORTO" | string };
+export type Slice = { label: string; value: number; side?: "LARGO" | "CORTO" | string; pnl?: number | null };
 
 /** Exposure composition donut. Values are |notional| per asset; the legend
  *  marks direction: ▲ long (green) / ▼ short (red). */
@@ -40,6 +40,8 @@ export default function Donut({ slices }: { slices: Slice[] }) {
                 ? <span className="pos" title="Posición larga (comprada)">▲</span>
                 : null}
             <span className="muted">{((s.value / total) * 100).toFixed(1)}%</span>
+            <span className="muted">· ${fmtUsd(s.value, 0)}</span>
+            {s.pnl != null && <b className={pnlClass(s.pnl)} style={{ marginLeft: 4 }}>{s.pnl >= 0 ? "+" : ""}{fmtUsd(s.pnl)}</b>}
           </div>
         ))}
       </div>

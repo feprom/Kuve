@@ -50,12 +50,21 @@ export default function History() {
         // registrado, o de una posición que el bot abrió antes) — misma regla
         // que la atribución del dashboard (lib/pnl.ts). Funding: todo desde el
         // alta (la cuenta la gestiona el bot desde entonces).
+        const ords = (o.data ?? []) as Order[];
+        const activity = [
+          ...trs.map((x) => ({ symbol: x.symbol, ts: x.ts })),
+          ...ords.filter((x) => x.status === "filled").map((x) => ({ symbol: x.symbol, ts: x.ts })),
+        ];
+        const opens = [
+          ...trs.filter((x) => !x.profit).map((x) => ({ symbol: x.symbol, ts: x.ts })),
+          ...ords.filter((x) => x.status === "filled" && !x.reduce_only).map((x) => ({ symbol: x.symbol, ts: x.ts })),
+        ];
         const near = (sym: string | null, ts: string, winMs: number) =>
-          !!sym && trs.some((tr) => tr.symbol === sym &&
-            Math.abs(new Date(tr.ts).getTime() - new Date(ts).getTime()) <= winMs);
+          !!sym && activity.some((x) => x.symbol === sym &&
+            Math.abs(new Date(x.ts).getTime() - new Date(ts).getTime()) <= winMs);
         const opensBefore = (sym: string | null, ts: string) =>
-          !!sym && trs.some((tr) => tr.symbol === sym && !tr.profit &&
-            new Date(tr.ts).getTime() < new Date(ts).getTime() - 120e3);
+          !!sym && opens.some((x) => x.symbol === sym &&
+            new Date(x.ts).getTime() < new Date(ts).getTime() - 120e3);
         setIncome(((inc.data ?? []) as Income[]).filter((x) =>
           x.income_type === "FUNDING_FEE" || near(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts)));
       }
