@@ -54,6 +54,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const [income, setIncome] = useState<Attribution | null>(null);
   const [levels, setLevels] = useState<Record<string, Levels | null>>({});
   const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
+  const [rango, setRango] = useState<"3m" | "ytd" | "entrada">("3m");
   const [loading, setLoading] = useState(true);
   const tuyo = esAdmin ? "del cliente" : "tuyo";
 
@@ -150,17 +151,35 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const pending = signals.filter((s) => !openSyms.has(s.symbol)).sort((a, b) => a.symbol.localeCompare(b.symbol));
   const profName: string = client?.risk_profiles?.name ?? "";
 
-  // ---- rendimiento desde la entrada: ambas curvas parten de 0% ese día y
-  // llegan a la última vela disponible (cuenta: cada hora; estrategia: diaria).
+  // ---- rendimiento: la ventana muestra mínimo 3 meses (o YTD, o desde la
+  // entrada). Ambas curvas se rebasean a 0% al inicio de la ventana; la curva
+  // del cliente se ancla al nivel de la estrategia en su fecha de entrada para
+  // que sean comparables. La estrategia llega hasta la última vela (el bot
+  // refresca el punto de hoy en cada vela).
   const entryTs = snaps.length ? new Date(snaps[0].ts).getTime() : null;
-  const benchAll = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index }));
+  const now = Date.now();
+  const benchAll = bench.map((b, i) => {
+    let x = new Date(b.date + "T00:00:00Z").getTime();
+    // el último punto (hoy, parcial) se dibuja en la hora actual, no a las 00:00
+    if (i === bench.length - 1 && now - x > 0 && now - x < 86400e3) x = now;
+    return { x, y: b.equity_index };
+  });
+  const jan1 = Date.UTC(new Date().getUTCFullYear(), 0, 1);
+  const baseStart = rango === "ytd" ? jan1 : rango === "3m" ? now - 92 * 86400e3 : (entryTs ?? now);
+  const windowStart = entryTs != null ? Math.min(baseStart, entryTs) : baseStart;
   let stratPts: { x: number; y: number }[] = [];
-  if (entryTs != null && benchAll.length) {
+  let anchorEntry = 0; // % de la estrategia (rebaseada) en la fecha de entrada
+  if (benchAll.length) {
     let base = benchAll[0].y;
-    for (const p of benchAll) if (p.x <= entryTs) base = p.y;
-    stratPts = benchAll.filter((p) => p.x >= entryTs - 86400e3).map((p) => ({ x: p.x, y: (p.y / base - 1) * 100 }));
+    for (const p of benchAll) if (p.x <= windowStart) base = p.y;
+    stratPts = benchAll.filter((p) => p.x >= windowStart - 86400e3).map((p) => ({ x: p.x, y: (p.y / base - 1) * 100 }));
+    if (entryTs != null) {
+      let be = base;
+      for (const p of benchAll) if (p.x <= entryTs) be = p.y;
+      anchorEntry = (be / base - 1) * 100;
+    }
   }
-  const clientPts = start ? botSeries.map((p) => ({ x: p.x, y: (p.pnl / start) * 100 })) : [];
+  const clientPts = start ? botSeries.map((p) => ({ x: p.x, y: anchorEntry + (p.pnl / start) * 100 })) : [];
   const series = [
     { label: "Estrategia " + profName, color: "#3d996f", points: stratPts },
     ...(clientPts.length > 1 ? [{ label: esAdmin ? "Cuenta del cliente (bot)" : "Tu cuenta (bot)", color: "var(--accent)", points: clientPts }] : []),
@@ -210,13 +229,19 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
       {/* ============ RENDIMIENTO ============ */}
       {series.length > 0 && (
         <div className="card">
-          <h2>Estrategia vs cuenta · {profName} · desde la entrada
+          <h2>Estrategia vs cuenta · {profName}
             {totalPct != null && <span className={pnlClass(totalPct)} style={{ marginLeft: 8 }}>{fmtPct(totalPct)}</span>}
+            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, float: "right" }}>
+              {([["3m", "3M"], ["ytd", "YTD"], ["entrada", "Entrada"]] as const).map(([k, lbl]) => (
+                <button key={k} className="btn-mini" onClick={() => setRango(k)}
+                  style={k === rango ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}>{lbl}</button>
+              ))}
+            </span>
           </h2>
           <PerfChart series={series} height={200} markerX={entryTs} markerLabel="Entrada" />
-          <p className="note">Ambas curvas parten de 0% en la fecha de entrada. Verde: la estrategia KV-9014 con el perfil
-            {profName ? ` ${profName}` : ""} (diaria, se actualiza al cierre de cada día). Azul: la cuenta real gestionada por el bot,
-            hora a hora hasta la última vela.</p>
+          <p className="note">Ambas curvas rebaseadas a 0% al inicio del período mostrado (mínimo 3 meses; YTD = desde el 1 de enero).
+            Verde: la estrategia KV-9014 con el perfil{profName ? ` ${profName}` : ""} — el punto de hoy se refresca en cada vela.
+            Azul: la cuenta real gestionada por el bot, hora a hora, anclada al nivel de la estrategia en la fecha de entrada.</p>
         </div>
       )}
 
@@ -227,7 +252,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead><tr><th>Activo</th><th>Lado</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th>
-                <th>Sale en</th><th>Dist.</th><th>Asegura</th><th>SL ⇄ TP</th></tr></thead>
+                <th>SL</th><th>TP</th><th>Asegura</th><th>SL ⇄ TP</th></tr></thead>
               <tbody>
                 {positions.map((p) => {
                   const notional = Math.abs(p.pos_amt * p.price);
@@ -244,11 +269,17 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
                       <td className={pnlClass(pnlPct)}>{fmtPct(pnlPct)}</td>
                       {lv ? (
                         <>
-                          <td><b>{fmtUsd(lv.slEff)}</b></td>
-                          <td className="muted">{lv.distPct.toFixed(1)}%</td>
+                          <td title={`Nivel de salida (el primero entre stop dinámico ${lv.slTrail.toFixed(4)} y canal ${lv.slChan.toFixed(4)}) · distancia ${lv.distPct.toFixed(1)}%`}>
+                            <b className="neg">{fmtUsd(lv.slEff)}</b>
+                            {lv.distPct <= 0 && <div className="badge off" style={{ marginTop: 2 }}>saliendo</div>}
+                          </td>
+                          <td title="Mejor precio alcanzado desde la entrada: el lado de toma de ganancias del trailing">
+                            <b className="pos">{fmtUsd(lv.best)}</b>
+                          </td>
                           <td className={pnlClass(lv.lockedPct)}>{lv.lockedPct >= 0 ? `+${lv.lockedPct.toFixed(1)}%` : `${lv.lockedPct.toFixed(1)}%`}</td>
-                          <td title={`Stop dinámico ${lv.slTrail} · salida canal ${lv.slChan} · mejor precio ${lv.best}`}>
-                            <LevelBar sl={lv.slEff} best={lv.best} price={lv.price} entry={p.entry_price} />
+                          <td>
+                            <LevelBar sl={lv.slEff} best={lv.best} price={lv.price} entry={p.entry_price}
+                              breached={lv.distPct <= 0} />
                           </td>
                         </>
                       ) : (
@@ -261,10 +292,12 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
             </table>
           </div>
         )}
-        <p className="note">Cada posición sale sola en el nivel <b>"Sale en"</b> (el primero que se toque entre el stop dinámico,
-          que sigue al precio, y la salida de canal). <b>"Asegura"</b> = lo que ese nivel ya protege frente a la entrada
-          (verde = ganancia asegurada aunque el precio se dé la vuelta). Slider <b>SL ⇄ TP</b>: rojo = salida por stop,
-          verde = mejor precio alcanzado (donde se va tomando ganancia), línea punteada = entrada, punto = precio actual.
+        <p className="note"><b>SL</b> = nivel donde la posición sale sola (el primero que se toque entre el stop dinámico, que
+          sigue al precio, y la salida de canal). <b>TP</b> = mejor precio alcanzado desde la entrada, el lado donde el trailing
+          va tomando ganancia. <b>Asegura</b> = lo que el SL ya protege frente a la entrada (verde = ganancia asegurada aunque
+          el precio se dé la vuelta). Barra <b>SL ⇄ TP</b>: rojo = stop, verde = mejor precio, línea punteada = entrada,
+          punto = precio actual. Si el precio ya cruzó el SL entre velas (aparece <b>"saliendo"</b>), el bot cierra la posición
+          en la evaluación de la próxima vela — por eso el SL puede quedar "detrás" del precio unos minutos.
           Niveles en vivo con velas de Binance y los parámetros del motor.</p>
       </div>
 

@@ -138,6 +138,8 @@ export default function Admin() {
           const s = latestOf(c.id);
           const pnl = pnlBotOf(c.id);
           const pnlPct = s && s.start_equity && pnl != null ? (pnl / s.start_equity) * 100 : null;
+          const a = attribByClient.get(c.id);
+          const realizado = a ? a.realizadoNeto : (s?.realized_cum ?? null);
           const spark = sparkOf(c.id);
           const sparkColor = pnl == null ? "var(--accent)" : pnl >= 0 ? "var(--green)" : "var(--red)";
           return (
@@ -162,6 +164,7 @@ export default function Admin() {
               <Sparkline points={spark} color={sparkColor} />
 
               <div className="mini-metrics">
+                <div className="mm"><div className={`v ${pnlClass(realizado)}`}>{realizado == null ? "—" : `$${fmtUsd(realizado, 0)}`}</div><div className="l">Realizado</div></div>
                 <div className="mm"><div className="v">${fmtUsd(s?.exposure_notional ?? null, 0)}</div><div className="l">Exposición</div></div>
                 <div className="mm"><div className="v">{s?.open_positions ?? "—"}</div><div className="l">Posiciones</div></div>
                 <div className="mm"><div className={`v ${s ? pnlClass(-Math.abs(s.dd_pct)) : ""}`}>{s ? fmtPct(s.dd_pct, 1) : "—"}</div><div className="l">Drawdown</div></div>

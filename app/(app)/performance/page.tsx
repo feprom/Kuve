@@ -40,7 +40,12 @@ export default function Performance() {
   if (loading) return <div className="muted">Cargando…</div>;
 
   const last = snaps[snaps.length - 1];
-  const stratPts = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index - 100 }));
+  const stratPts = bench.map((b, i) => {
+    let x = new Date(b.date + "T00:00:00Z").getTime();
+    // el punto de hoy (parcial, refrescado por vela) se dibuja en la hora actual
+    if (i === bench.length - 1 && Date.now() - x > 0 && Date.now() - x < 86400e3) x = Date.now();
+    return { x, y: b.equity_index - 100 };
+  });
   const entryTs = snaps.length ? new Date(snaps[0].ts).getTime() : null;
 
   // anchor the client's own curve at the strategy's % on their entry date,

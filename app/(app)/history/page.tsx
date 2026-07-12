@@ -7,11 +7,13 @@ import AssetName from "@/components/AssetName";
 type Trade = { id: number; ts: string; symbol: string; side: string; tag: string; profit: number; commission: number; cum: number; qty: number | null; price: number | null };
 type Order = { id: number; ts: string; symbol: string; side: string; qty: number; status: string; reduce_only: boolean; error: string | null };
 type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string };
+type Income = { income_type: string; income: number; ts: string; symbol: string | null };
 
 export default function History() {
-  const [tab, setTab] = useState<"trades" | "orders">("trades");
+  const [tab, setTab] = useState<"trades" | "orders" | "costos">("trades");
   const [trades, setTrades] = useState<Trade[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [income, setIncome] = useState<Income[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [loading, setLoading] = useState(true);
   const [fSymbol, setFSymbol] = useState<string>("all");
@@ -28,13 +30,17 @@ export default function History() {
         const atr = (c as any).risk_profiles?.atr_mult;
         const variant = atr == null ? "default"
           : `atr${Number.isInteger(Number(atr)) ? parseInt(String(atr)) : atr}`;
-        const [t, o, s] = await Promise.all([
+        const [t, o, s, inc] = await Promise.all([
           sb.from("trades").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
           sb.from("orders").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
           sb.from("strategy_signals").select("*").eq("variant", variant)
             .order("bar_time", { ascending: false }).limit(8),
+          sb.from("account_income").select("income_type, income, ts, symbol").eq("client_id", c.id)
+            .in("income_type", ["COMMISSION", "FUNDING_FEE"])
+            .order("ts", { ascending: false }).limit(5000),
         ]);
         setTrades(t.data ?? []); setOrders(o.data ?? []); setSignals(s.data ?? []);
+        setIncome((inc.data ?? []) as Income[]);
       }
       setLoading(false);
     })();
@@ -52,11 +58,29 @@ export default function History() {
   const forders = orders.filter((o) =>
     (fSymbol === "all" || o.symbol === fSymbol) && (fSide === "all" || o.side === fSide));
 
+  // Costos (comisiones + funding) agregados por mes, del ledger de Binance
+  const fincome = income.filter((x) => fSymbol === "all" || x.symbol === fSymbol);
+  const meses = new Map<string, { comisiones: number; funding: number }>();
+  for (const x of fincome) {
+    const m = x.ts.slice(0, 7);
+    const e = meses.get(m) ?? { comisiones: 0, funding: 0 };
+    if (x.income_type === "COMMISSION") e.comisiones += Number(x.income || 0);
+    else e.funding += Number(x.income || 0);
+    meses.set(m, e);
+  }
+  const costosMes = Array.from(meses.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  const totCom = costosMes.reduce((a, [, v]) => a + v.comisiones, 0);
+  const totFun = costosMes.reduce((a, [, v]) => a + v.funding, 0);
+
   function exportCsv() {
     const rows: string[][] = tab === "trades"
       ? [["fecha", "activo", "operacion", "cantidad", "precio", "profit", "comision", "acumulado"],
          ...ftrades.map((t) => [t.ts, t.symbol ?? "", t.side ?? "", String(t.qty ?? ""),
            String(t.price ?? ""), String(t.profit ?? ""), String(t.commission ?? ""), String(t.cum ?? "")])]
+      : tab === "costos"
+      ? [["mes", "comisiones", "funding", "total"],
+         ...costosMes.map(([m, v]) => [m, v.comisiones.toFixed(4), v.funding.toFixed(4),
+           (v.comisiones + v.funding).toFixed(4)])]
       : [["fecha", "activo", "lado", "cantidad", "reduce_only", "estado", "error"],
          ...forders.map((o) => [o.ts, o.symbol, o.side, String(o.qty),
            String(o.reduce_only), o.status, o.error ?? ""])];
@@ -75,6 +99,7 @@ export default function History() {
       <div className="tabs">
         <div className={`tab ${tab === "trades" ? "active" : ""}`} onClick={() => setTab("trades")}>Trades</div>
         <div className={`tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>Órdenes</div>
+        <div className={`tab ${tab === "costos" ? "active" : ""}`} onClick={() => setTab("costos")}>Costos</div>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -95,7 +120,7 @@ export default function History() {
           <h2>Trades ejecutados</h2>
           {ftrades.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin operaciones con esos filtros</div> : (
             <table>
-              <thead><tr><th>Fecha</th><th>Activo</th><th>Op.</th><th>Profit</th><th>Acum.</th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Activo</th><th>Op.</th><th>Profit</th><th>Comisión</th><th>Acum.</th></tr></thead>
               <tbody>
                 {ftrades.map((t) => (
                   <tr key={t.id}>
@@ -103,11 +128,44 @@ export default function History() {
                     <td>{t.symbol ? <AssetName symbol={t.symbol} price={lastPrice[t.symbol]} /> : "—"}</td>
                     <td>{t.side}</td>
                     <td className={pnlClass(t.profit)}>{fmtUsd(t.profit)}</td>
+                    <td className={t.commission ? "neg" : "muted"}>{t.commission ? fmtUsd(t.commission) : "—"}</td>
                     <td className={pnlClass(t.cum)}>{fmtUsd(t.cum)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {tab === "costos" && (
+        <div className="card">
+          <h2>Costos de operación (comisiones y funding)</h2>
+          {costosMes.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin costos registrados aún</div> : (
+            <>
+              <table>
+                <thead><tr><th>Mes</th><th>Comisiones</th><th>Funding</th><th>Total</th></tr></thead>
+                <tbody>
+                  {costosMes.map(([m, v]) => (
+                    <tr key={m}>
+                      <td>{m}</td>
+                      <td className={pnlClass(v.comisiones)}>{fmtUsd(v.comisiones)}</td>
+                      <td className={pnlClass(v.funding)}>{fmtUsd(v.funding)}</td>
+                      <td className={pnlClass(v.comisiones + v.funding)}><b>{fmtUsd(v.comisiones + v.funding)}</b></td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td><b>Total</b></td>
+                    <td className={pnlClass(totCom)}><b>{fmtUsd(totCom)}</b></td>
+                    <td className={pnlClass(totFun)}><b>{fmtUsd(totFun)}</b></td>
+                    <td className={pnlClass(totCom + totFun)}><b>{fmtUsd(totCom + totFun)}</b></td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="note">Del ledger de Binance (account_income). Comisiones = fees de ejecución de cada fill.
+                Funding = pagos/cobros periódicos de futuros perpetuos (positivo = cobrado a tu favor).
+                El funding se sincroniza con el job de income del bot.</p>
+            </>
           )}
         </div>
       )}
