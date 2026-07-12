@@ -5,12 +5,14 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import PerfChart from "@/components/PerfChart";
 import AssetName from "@/components/AssetName";
+import TriggerGauge from "@/components/TriggerGauge";
+import { computeLevels, Levels } from "@/lib/levels";
 
 type Client = {
   id: string; name: string; email: string | null; mode: string; enabled: boolean;
   activation_requested: boolean; key_status: string; created_at: string;
   risk_profile_id: number | null;
-  risk_profiles: { name: string } | null;
+  risk_profiles: { name: string; atr_mult: number | null } | null;
 };
 type Profile = { id: number; name: string };
 type Snap = {
@@ -28,7 +30,14 @@ type Report = {
   pnl_abs: number; pnl_pct: number; realized: number; n_trades: number; max_dd_pct: number;
 };
 
+type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string; created_at: string };
+type Income = { mercado: number; comisiones: number; funding: number; transfers: number; hasta: string | null };
+
 type Tab = "resumen" | "posiciones" | "historial" | "eventos" | "cortes";
+
+/** Variante de señal según el perfil: atr_mult null -> 'default', 10 -> 'atr10'. */
+const variantOf = (atr: number | null | undefined) =>
+  atr == null ? "default" : `atr${Number.isInteger(Number(atr)) ? parseInt(String(atr)) : atr}`;
 
 /** First day of next month, 00:00 UTC. */
 function nextCutoff(): Date {
@@ -55,6 +64,9 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
   const [snaps, setSnaps] = useState<Snap[]>([]);
   const [bench, setBench] = useState<Bench[]>([]);
   const [positions, setPositions] = useState<Pos[]>([]);
+  const [signals, setSignals] = useState<Signal[]>([]);
+  const [levels, setLevels] = useState<Record<string, Levels | null>>({});
+  const [income, setIncome] = useState<Income | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [events, setEvents] = useState<Evt[]>([]);
@@ -75,7 +87,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
     setIsAdmin(true);
 
     const [c, p] = await Promise.all([
-      sb.from("clients").select("*, risk_profiles(name)").eq("id", id).single(),
+      sb.from("clients").select("*, risk_profiles(name, atr_mult)").eq("id", id).single(),
       sb.from("risk_profiles").select("id, name").order("id"),
     ]);
     const cli = c.data as any;
@@ -92,7 +104,8 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
     const snapRows = (s.data ?? []) as Snap[];
     const lastSnap = snapRows[snapRows.length - 1];
 
-    const [b, pos, t, o, e, r] = await Promise.all([
+    const variant = variantOf(cli?.risk_profiles?.atr_mult);
+    const [b, pos, t, o, e, r, sig, inc] = await Promise.all([
       cli?.risk_profile_id
         ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", cli.risk_profile_id).order("date", { ascending: true })
         : Promise.resolve({ data: [] as Bench[] }),
@@ -104,7 +117,22 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
       sb.from("orders").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(300),
       sb.from("events").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(150),
       sb.from("client_monthly_reports").select("*").eq("client_id", id).order("period_start", { ascending: false }),
+      sb.from("strategy_signals").select("*").eq("variant", variant).order("bar_time", { ascending: false }).limit(8),
+      snapRows[0]?.ts
+        ? sb.from("account_income").select("income_type, income, ts").eq("client_id", id).gte("ts", snapRows[0].ts).limit(5000)
+        : Promise.resolve({ data: [] as any[] }),
     ]);
+    // Realizado según el LEDGER de Binance (desde el ingreso del cliente):
+    // mercado + comisiones completas + funding; transfers aparte.
+    {
+      const rows = ((inc as any).data ?? []) as { income_type: string; income: number; ts: string }[];
+      const sum = (t: string) => rows.filter((x) => x.income_type === t).reduce((a, x) => a + Number(x.income || 0), 0);
+      setIncome({
+        mercado: sum("REALIZED_PNL"), comisiones: sum("COMMISSION"), funding: sum("FUNDING_FEE"),
+        transfers: sum("TRANSFER"), hasta: rows.length ? rows.map((x) => x.ts).sort().slice(-1)[0] : null,
+      });
+    }
+    setSignals(((sig as any).data ?? []) as Signal[]);
     setSnaps(snapRows);
     setBench((b as any).data ?? []);
     setPositions(dedupeBySymbol(((pos as any).data ?? []).filter((row: Pos) => row.pos_amt !== 0)));
@@ -115,6 +143,27 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
     setLoading(false);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  // Niveles de salida (SL dinámico + canal) por posición abierta, con velas de
+  // Binance en el navegador. La fecha de entrada se toma del último trade de
+  // apertura registrado para ese símbolo.
+  useEffect(() => {
+    if (!positions.length) { setLevels({}); return; }
+    let alive = true;
+    (async () => {
+      const out: Record<string, Levels | null> = {};
+      await Promise.all(positions.map(async (p) => {
+        const sideNum: 1 | -1 = p.pos_amt > 0 ? 1 : -1;
+        const openSide = sideNum > 0 ? "BUY" : "SELL";
+        const entryTrade = trades.find((t) => t.symbol === p.symbol && t.side === openSide && !t.profit);
+        const entryMs = entryTrade ? new Date(entryTrade.ts).getTime() : Date.now() - 30 * 86400e3;
+        out[p.symbol] = await computeLevels(p.symbol, sideNum, entryMs, p.entry_price);
+      }));
+      if (alive) setLevels(out);
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line
+  }, [positions, trades]);
 
   async function toggleClient() {
     if (!client) return;
@@ -237,16 +286,32 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
               <div className="metric"><div className="v">${fmtUsd(last.equity)}</div><div className="l">Equity</div></div>
               <div className="metric"><div className={`v ${pnlClass(pnlAbs)}`}>{fmtUsd(pnlAbs)}</div><div className="l">PnL total</div></div>
               <div className="metric"><div className={`v ${pnlClass(totalPct)}`}>{fmtPct(totalPct)}</div><div className="l">PnL total %</div></div>
-              <div className="metric"><div className={`v ${pnlClass(last.realized_cum)}`}>{fmtUsd(last.realized_cum)}</div><div className="l">Realizado</div></div>
+              {income ? (
+                <div className="metric"><div className={`v ${pnlClass(income.mercado + income.comisiones + income.funding)}`}>{fmtUsd(income.mercado + income.comisiones + income.funding)}</div><div className="l">Realizado neto (ledger)</div></div>
+              ) : (
+                <div className="metric"><div className={`v ${pnlClass(last.realized_cum)}`}>{fmtUsd(last.realized_cum)}</div><div className="l">Realizado (bot)</div></div>
+              )}
               <div className="metric"><div className={`v ${pnlClass(last.unrealized_pnl)}`}>{fmtUsd(last.unrealized_pnl)}</div><div className="l">No realizado (posiciones)</div></div>
               <div className="metric"><div className="v">{fmtPct(last.dd_pct, 1)}</div><div className="l">Drawdown</div></div>
               <div className="metric"><div className="v">${fmtUsd(last.exposure_notional, 0)}</div><div className="l">Exposición</div></div>
               <div className="metric"><div className="v">${fmtUsd(last.margin_used, 0)}</div><div className="l">Margen usado</div></div>
               <div className="metric"><div className="v">{last.n_trades ?? 0}</div><div className="l">Trades</div></div>
             </div>
-            <p className="note">Todas las cifras de esta pestaña y de "Posiciones" corresponden a la misma última vela ({fmtDate(last.ts)}).
-              "PnL total" es equity menos capital inicial (incluye todo el historial de la cuenta desde el ingreso: realizado + no realizado + comisiones/financiamiento).
-              Si no coincide con la suma de "Realizado" y "No realizado", la diferencia proviene de movimientos anteriores de la cuenta (comisiones o financiamiento del exchange) que no quedan registrados como trade.</p>
+            {income && (
+              <div className="metric-row">
+                <div className="metric"><div className={`v ${pnlClass(income.mercado)}`}>{fmtUsd(income.mercado)}</div><div className="l">Mercado (cierres)</div></div>
+                <div className="metric"><div className={`v ${pnlClass(income.comisiones)}`}>{fmtUsd(income.comisiones)}</div><div className="l">Comisiones</div></div>
+                <div className="metric"><div className={`v ${pnlClass(income.funding)}`}>{fmtUsd(income.funding)}</div><div className="l">Funding</div></div>
+                {income.transfers !== 0 && (
+                  <div className="metric"><div className="v">{fmtUsd(income.transfers)}</div><div className="l">Depósitos/retiros (desde ingreso)</div></div>
+                )}
+              </div>
+            )}
+            <p className="note">Cifras de esta pestaña y de "Posiciones": última vela ({fmtDate(last.ts)}).
+              "PnL total" = equity − capital inicial. Debe cuadrar como: <b>Realizado neto (ledger) + No realizado{income && income.transfers !== 0 ? " + depósitos/retiros" : ""}</b>.
+              El "Realizado neto" viene del ledger de Binance desde el ingreso del cliente e incluye mercado + comisiones completas + funding
+              {income?.hasta ? ` (sincronizado hasta ${fmtDate(income.hasta)}; el residuo frente al PnL total son fills posteriores aún no sincronizados)` : ""}.
+              El contador "Realizado" del bot solo suma los cierres que él registró (sin funding ni todas las comisiones) — por eso antes no cuadraba.</p>
             <div className="card">
               <h2>Estrategia vs cuenta del cliente (YTD, en %)</h2>
               <PerfChart series={series} markerX={entryTs} markerLabel="Entrada" />
@@ -257,36 +322,83 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
         )
       )}
 
-      {tab === "posiciones" && (
-        <div className="card">
-          <h2>Posiciones abiertas ({positions.length}){last && ` · vela ${fmtDate(last.ts)}`}</h2>
-          {positions.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin posiciones abiertas</div> : (
-            <div style={{ overflowX: "auto" }}>
-              <table>
-                <thead><tr><th>Activo</th><th>Lado</th><th>Tamaño</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th></tr></thead>
-                <tbody>
-                  {positions.map((p) => {
-                    const notional = Math.abs(p.pos_amt * p.price);
-                    const pnlPct = p.entry_price ? (p.price / p.entry_price - 1) * 100 * Math.sign(p.pos_amt) : null;
-                    return (
-                      <tr key={p.symbol}>
-                        <td><AssetName symbol={p.symbol} price={p.price} /></td>
-                        <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
-                        <td>{p.pos_amt}</td>
-                        <td>{fmtUsd(notional, 0)}</td>
-                        <td>{fmtUsd(p.entry_price)}</td>
-                        <td>{fmtUsd(p.price)}</td>
-                        <td className={pnlClass(p.unrealized_pnl)}>{fmtUsd(p.unrealized_pnl)}</td>
-                        <td className={pnlClass(pnlPct)}>{fmtPct(pnlPct)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+      {tab === "posiciones" && (() => {
+        const openSyms = new Set(positions.map((p) => p.symbol));
+        const pending = signals.filter((s) => !openSyms.has(s.symbol)).sort((a, b) => a.symbol.localeCompare(b.symbol));
+        return (
+          <>
+            <div className="card">
+              <h2>Corriendo ({positions.length}){last && ` · vela ${fmtDate(last.ts)}`}</h2>
+              {positions.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin posiciones abiertas</div> : (
+                <div style={{ overflowX: "auto" }}>
+                  <table>
+                    <thead><tr><th>Activo</th><th>Lado</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th>
+                      <th>Stop dinámico</th><th>Salida canal</th><th>Sale en</th><th>Dist.</th><th>Asegura</th></tr></thead>
+                    <tbody>
+                      {positions.map((p) => {
+                        const notional = Math.abs(p.pos_amt * p.price);
+                        const pnlPct = p.entry_price ? (p.price / p.entry_price - 1) * 100 * Math.sign(p.pos_amt) : null;
+                        const lv = levels[p.symbol];
+                        return (
+                          <tr key={p.symbol}>
+                            <td><AssetName symbol={p.symbol} price={p.price} /></td>
+                            <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
+                            <td>{fmtUsd(notional, 0)}</td>
+                            <td>{fmtUsd(p.entry_price)}</td>
+                            <td>{fmtUsd(p.price)}</td>
+                            <td className={pnlClass(p.unrealized_pnl)}>{fmtUsd(p.unrealized_pnl)}</td>
+                            <td className={pnlClass(pnlPct)}>{fmtPct(pnlPct)}</td>
+                            {lv ? (
+                              <>
+                                <td>{fmtUsd(lv.slTrail)}</td>
+                                <td>{fmtUsd(lv.slChan)}</td>
+                                <td><b>{fmtUsd(lv.slEff)}</b></td>
+                                <td className="muted">{lv.distPct.toFixed(1)}%</td>
+                                <td className={pnlClass(lv.lockedPct)}>{lv.lockedPct >= 0 ? `+${lv.lockedPct.toFixed(1)}%` : `${lv.lockedPct.toFixed(1)}%`}</td>
+                              </>
+                            ) : (
+                              <td colSpan={5} className="muted">calculando…</td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="note">La posición cierra en el nivel "Sale en" (el primero que se toque entre el <b>stop dinámico</b>, que
+                sube/baja con el precio, y la <b>salida de canal</b>). "Asegura" = resultado que ya protege ese nivel frente a la entrada:
+                positivo (verde) = toma de ganancia asegurada aunque el precio se dé la vuelta; negativo = pérdida máxima restante.
+                Niveles calculados en vivo con velas de Binance y los parámetros del motor.</p>
             </div>
-          )}
-        </div>
-      )}
+
+            <div className="card">
+              <h2>En espera de señal ({pending.length})</h2>
+              {pending.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Todos los activos tienen posición abierta</div> : (
+                <div style={{ overflowX: "auto" }}>
+                  <table>
+                    <thead><tr><th>Activo</th><th>Precio</th><th>Corto&nbsp;&lt;</th><th>Largo&nbsp;&gt;</th><th>Proximidad</th></tr></thead>
+                    <tbody>
+                      {pending.map((s) => (
+                        <tr key={s.symbol}>
+                          <td><AssetName symbol={s.symbol} price={s.price} /></td>
+                          <td>{fmtUsd(s.price)}</td>
+                          <td className="neg">{fmtUsd(s.short_trigger)}</td>
+                          <td className="pos">{fmtUsd(s.long_trigger)}</td>
+                          <td><TriggerGauge price={s.price} longT={s.long_trigger} shortT={s.short_trigger} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="note">Niveles de entrada de la estrategia con el perfil de este cliente ({client.risk_profiles?.name ?? "—"}).
+                El punto indica dónde está el precio entre el disparo de venta (rojo) y el de compra (verde).
+                {signals[0] && <> Señales actualizadas: {fmtDate(signals[0].created_at ?? signals[0].bar_time)}.</>}</p>
+            </div>
+          </>
+        );
+      })()}
 
       {tab === "historial" && (
         <>
