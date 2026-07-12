@@ -271,12 +271,14 @@ export default function Admin() {
                   const px = livePx[p.symbol] ?? p.price;
                   return a + (p.entry_price ? p.pos_amt * (px - p.entry_price) : 0);
                 }, 0);
+                const entryNot = poss.reduce((a, p) => a + Math.abs(p.pos_amt * (p.entry_price || p.price)), 0);
+                const upnlPct = entryNot ? (upnlTot / entryNot) * 100 : null;
                 return (
-                  <div title="Posiciones abiertas: uPnL total y % frente a la entrada por activo, con precio en vivo (15 s)">
+                  <div title="PnL no realizado de las posiciones abiertas (suma), en USD y en % frente al monto de entrada, con precio en vivo (15 s)">
                     <div style={{ fontSize: 13, marginBottom: 4 }}>
-                      <span className="muted">Posiciones ahora: </span>
+                      <span className="muted">PnL pos. (vivo): </span>
                       <b className={pnlClass(upnlTot)}>{upnlTot >= 0 ? "+$" : "−$"}{fmtUsd(Math.abs(upnlTot))}</b>
-                      <span className="muted"> en vivo</span>
+                      <b className={pnlClass(upnlPct)} style={{ marginLeft: 6 }}>({fmtPct(upnlPct, 2)})</b>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 12 }}>
                       {poss.map((p) => {
