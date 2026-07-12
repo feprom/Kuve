@@ -104,14 +104,15 @@ export default function Admin() {
     return pts;
   };
 
-  // PnL atribuido al BOT: realizado neto (ledger) + no realizado; si el ledger
-  // de un cliente aun no sincroniza, cae a equity - capital inicial.
+  // PnL atribuido al BOT — MISMA fórmula que la vista de la cuenta (AccountView):
+  // equity − capital inicial − cierres heredados (posiciones previas al bot).
+  // Así la tarjeta y el detalle muestran siempre el mismo número. El "realizado
+  // neto" del ledger se muestra aparte como mini-métrica (sincroniza con lag).
   const pnlBotOf = (id: string): number | null => {
     const s = latestOf(id);
-    if (!s) return null;
+    if (!s || !s.start_equity) return null;
     const a = attribByClient.get(id);
-    if (a) return a.realizadoNeto + (s.unrealized_pnl ?? 0);
-    return s.start_equity ? s.equity - s.start_equity : null;
+    return s.equity - s.start_equity - (a?.heredado ?? 0);
   };
 
   const active = clients.filter((c) => c.enabled);

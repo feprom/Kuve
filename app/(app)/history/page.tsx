@@ -30,6 +30,10 @@ export default function History() {
         const atr = (c as any).risk_profiles?.atr_mult;
         const variant = atr == null ? "default"
           : `atr${Number.isInteger(Number(atr)) ? parseInt(String(atr)) : atr}`;
+        // costos SOLO del bot: desde su puesta en marcha (primer snapshot)
+        const { data: firstSnap } = await sb.from("account_snapshots").select("ts")
+          .eq("client_id", c.id).order("ts", { ascending: true }).limit(1);
+        const botStart = firstSnap?.[0]?.ts ?? "1970-01-01";
         const [t, o, s, inc] = await Promise.all([
           sb.from("trades").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
           sb.from("orders").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
@@ -37,10 +41,23 @@ export default function History() {
             .order("bar_time", { ascending: false }).limit(8),
           sb.from("account_income").select("income_type, income, ts, symbol").eq("client_id", c.id)
             .in("income_type", ["COMMISSION", "FUNDING_FEE"])
+            .gte("ts", botStart)
             .order("ts", { ascending: false }).limit(5000),
         ]);
-        setTrades(t.data ?? []); setOrders(o.data ?? []); setSignals(s.data ?? []);
-        setIncome((inc.data ?? []) as Income[]);
+        const trs = (t.data ?? []) as Trade[];
+        setTrades(trs); setOrders(o.data ?? []); setSignals(s.data ?? []);
+        // comisiones: solo las de fills del bot (fill a ±5 min de un trade
+        // registrado, o de una posición que el bot abrió antes) — misma regla
+        // que la atribución del dashboard (lib/pnl.ts). Funding: todo desde el
+        // alta (la cuenta la gestiona el bot desde entonces).
+        const near = (sym: string | null, ts: string, winMs: number) =>
+          !!sym && trs.some((tr) => tr.symbol === sym &&
+            Math.abs(new Date(tr.ts).getTime() - new Date(ts).getTime()) <= winMs);
+        const opensBefore = (sym: string | null, ts: string) =>
+          !!sym && trs.some((tr) => tr.symbol === sym && !tr.profit &&
+            new Date(tr.ts).getTime() < new Date(ts).getTime() - 120e3);
+        setIncome(((inc.data ?? []) as Income[]).filter((x) =>
+          x.income_type === "FUNDING_FEE" || near(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts)));
       }
       setLoading(false);
     })();

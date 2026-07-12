@@ -31,6 +31,9 @@ export type Levels = {
   best: number;      // mejor precio desde la entrada (extremo del trailing = lado de toma de ganancias)
   distPct: number;   // distancia del precio al SL efectivo (%; margen restante)
   lockedPct: number; // % asegurado respecto a la entrada (>0 = el stop ya protege ganancia)
+  beTrigger: number; // precio que el mercado debe tocar para que el stop cruce la entrada
+                     // (breakeven): corto = entrada − am×ATR; largo = entrada + am×ATR.
+                     // Más allá de ese nivel, cada nuevo extremo asegura más ganancia.
 };
 
 const FAPI = "https://fapi.binance.com/fapi/v1";
@@ -76,7 +79,8 @@ export async function computeLevels(
     const best = short ? loSince : hiSince;
     const distPct = (short ? slEff / price - 1 : 1 - slEff / price) * 100;
     const lockedPct = entryPrice ? (short ? 1 - slEff / entryPrice : slEff / entryPrice - 1) * 100 : 0;
-    return { price, slTrail, slChan, slEff, best, distPct, lockedPct };
+    const beTrigger = short ? entryPrice - prm.am * atr : entryPrice + prm.am * atr;
+    return { price, slTrail, slChan, slEff, best, distPct, lockedPct, beTrigger };
   } catch {
     return null;
   }

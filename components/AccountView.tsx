@@ -22,7 +22,7 @@ import TriggerGauge from "@/components/TriggerGauge";
 import LevelBar from "@/components/LevelBar";
 import AssetName from "@/components/AssetName";
 import PerfChart from "@/components/PerfChart";
-import { computeLevels, Levels } from "@/lib/levels";
+import { computeLevels, Levels, STRATEGY_PARAMS } from "@/lib/levels";
 import { attributeIncome, Attribution } from "@/lib/pnl";
 
 type Snap = {
@@ -55,6 +55,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const [levels, setLevels] = useState<Record<string, Levels | null>>({});
   const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
   const [rango, setRango] = useState<"3m" | "ytd" | "entrada">("3m");
+  const [live, setLive] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const tuyo = esAdmin ? "del cliente" : "tuyo";
 
@@ -114,6 +115,28 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     // eslint-disable-next-line
   }, [positions, trades]);
 
+  // Precios EN VIVO de las posiciones abiertas (ticker público de Binance),
+  // refrescados cada 15 s: la tabla "Corriendo" se mueve entre velas. El PnL
+  // total y el equity siguen siendo por vela (los escribe el bot cada hora).
+  useEffect(() => {
+    if (!positions.length) { setLive({}); return; }
+    let alive = true;
+    const load = async () => {
+      const out: Record<string, number> = {};
+      await Promise.all(positions.map(async (p) => {
+        try {
+          const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${p.symbol}`);
+          if (r.ok) { const j = await r.json(); const v = +j.price; if (v > 0) out[p.symbol] = v; }
+        } catch { /* sin red: la fila mantiene el precio de la vela */ }
+      }));
+      if (alive && Object.keys(out).length) setLive((prev) => ({ ...prev, ...out }));
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(id); };
+    // eslint-disable-next-line
+  }, [positions]);
+
   if (loading) return <div className="muted">Cargando…</div>;
 
   const snap = snaps[snaps.length - 1] ?? null;
@@ -149,6 +172,10 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const slices = positions.map((p) => ({ label: p.symbol, value: Math.abs(p.pos_amt * p.price), side: p.side }));
   const openSyms = new Set(positions.map((p) => p.symbol));
   const pending = signals.filter((s) => !openSyms.has(s.symbol)).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  // última señal del motor por símbolo (variante del perfil): fuente de verdad
+  // de lo que el bot hará con cada posición en la próxima vela
+  const sigBySym = new Map<string, Signal>();
+  for (const s of signals) if (!sigBySym.has(s.symbol)) sigBySym.set(s.symbol, s);
   const profName: string = client?.risk_profiles?.name ?? "";
 
   // ---- rendimiento: la ventana muestra mínimo 3 meses (o YTD, o desde la
@@ -247,43 +274,71 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
 
       {/* ============ POSICIONES ============ */}
       <div className="card">
-        <h2>Corriendo ({positions.length}) · vela {fmtDate(snap.ts)}</h2>
+        <h2>Corriendo ({positions.length}) · vela {fmtDate(snap.ts)}
+          {Object.keys(live).length > 0 && <span className="badge on" style={{ marginLeft: 8 }}>en vivo · 15 s</span>}
+        </h2>
         {positions.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin posiciones abiertas</div> : (
           <div style={{ overflowX: "auto" }}>
             <table>
               <thead><tr><th>Activo</th><th>Lado</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th>
-                <th>SL</th><th>TP</th><th>Asegura</th><th>SL ⇄ TP</th></tr></thead>
+                <th>Estado</th><th>SL</th><th>Gana desde</th><th>SL ⇄ TP</th></tr></thead>
               <tbody>
                 {positions.map((p) => {
-                  const notional = Math.abs(p.pos_amt * p.price);
-                  const pnlPct = p.entry_price ? (p.price / p.entry_price - 1) * 100 * Math.sign(p.pos_amt) : null;
+                  const price = live[p.symbol] ?? p.price;                    // en vivo (15 s) o vela
+                  const esVivo = live[p.symbol] != null;
+                  const notional = Math.abs(p.pos_amt * price);
+                  const upnl = esVivo && p.entry_price ? p.pos_amt * (price - p.entry_price) : p.unrealized_pnl;
+                  const pnlPct = p.entry_price ? (price / p.entry_price - 1) * 100 * Math.sign(p.pos_amt) : null;
                   const lv = levels[p.symbol];
+                  const sideNum = p.pos_amt > 0 ? 1 : -1;
+                  const distLive = lv ? (sideNum < 0 ? lv.slEff / price - 1 : 1 - lv.slEff / price) * 100 : null;
+                  const sig = sigBySym.get(p.symbol);
+                  const cierraSenal = sig ? sig.side !== sideNum : false; // señal en plano o contraria
                   return (
                     <tr key={p.symbol}>
                       <td><AssetName symbol={p.symbol} price={p.price} /></td>
                       <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
                       <td>{fmtUsd(notional, 0)}</td>
                       <td>{fmtUsd(p.entry_price)}</td>
-                      <td>{fmtUsd(p.price)}</td>
-                      <td className={pnlClass(p.unrealized_pnl)}>{fmtUsd(p.unrealized_pnl)}</td>
+                      <td title={esVivo ? "Precio en vivo (se refresca cada 15 s)" : "Precio de la última vela"}>{fmtUsd(price)}</td>
+                      <td className={pnlClass(upnl)}>{fmtUsd(upnl)}</td>
                       <td className={pnlClass(pnlPct)}>{fmtPct(pnlPct)}</td>
+                      <td>
+                        {cierraSenal ? (
+                          <span className="badge off" title={sig && sig.side === 0
+                            ? `La señal del motor pasó a plano (vela ${fmtDate(sig.bar_time)}): el bot cierra esta posición en la próxima vela`
+                            : `La señal del motor se dio la vuelta: el bot cierra esta posición en la próxima vela`}>
+                            cierra próx. vela
+                          </span>
+                        ) : distLive != null && distLive <= 0 ? (
+                          <span className="badge off" title="El precio cruzó el stop dentro de la vela en curso: si se mantiene al cierre, el motor da la salida">
+                            stop tocado
+                          </span>
+                        ) : (
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            {distLive != null ? `sigue · SL a ${distLive.toFixed(1)}%` : "sigue"}
+                          </span>
+                        )}
+                      </td>
                       {lv ? (
                         <>
-                          <td title={`Nivel de salida (el primero entre stop dinámico ${lv.slTrail.toFixed(4)} y canal ${lv.slChan.toFixed(4)}) · distancia ${lv.distPct.toFixed(1)}%`}>
+                          <td title={`Nivel de salida (el primero entre stop dinámico ${lv.slTrail.toFixed(4)} y canal ${lv.slChan.toFixed(4)}) · ${lv.lockedPct >= 0 ? `ya asegura +${lv.lockedPct.toFixed(1)}% frente a la entrada` : `si sale ahí, resultado ${lv.lockedPct.toFixed(1)}% frente a la entrada`}`}>
                             <b className="neg">{fmtUsd(lv.slEff)}</b>
-                            {lv.distPct <= 0 && <div className="badge off" style={{ marginTop: 2 }}>saliendo</div>}
                           </td>
-                          <td title="Mejor precio alcanzado desde la entrada: el lado de toma de ganancias del trailing">
-                            <b className="pos">{fmtUsd(lv.best)}</b>
+                          <td title={lv.lockedPct >= 0
+                            ? `El stop (${fmtUsd(lv.slEff)}) ya está más allá de la entrada: la salida queda en ganancia pase lo que pase`
+                            : `Si el precio toca este nivel (entrada ${p.side === "CORTO" ? "−" : "+"} ${STRATEGY_PARAMS[p.symbol]?.am ?? "n"}×ATR), el stop dinámico cruza la entrada y la salida pasa a ser en ganancia. Calculado con el ATR actual.`}>
+                            {lv.lockedPct >= 0
+                              ? <b className="pos">✓ {fmtUsd(lv.slEff)}</b>
+                              : <b className="pos">{fmtUsd(lv.beTrigger)}</b>}
                           </td>
-                          <td className={pnlClass(lv.lockedPct)}>{lv.lockedPct >= 0 ? `+${lv.lockedPct.toFixed(1)}%` : `${lv.lockedPct.toFixed(1)}%`}</td>
                           <td>
-                            <LevelBar sl={lv.slEff} best={lv.best} price={lv.price} entry={p.entry_price}
-                              breached={lv.distPct <= 0} />
+                            <LevelBar sl={lv.slEff} best={lv.best} price={price} entry={p.entry_price}
+                              breached={distLive != null && distLive <= 0} />
                           </td>
                         </>
                       ) : (
-                        <td colSpan={4} className="muted">calculando…</td>
+                        <td colSpan={3} className="muted">calculando…</td>
                       )}
                     </tr>
                   );
@@ -293,11 +348,13 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           </div>
         )}
         <p className="note"><b>SL</b> = nivel donde la posición sale sola (el primero que se toque entre el stop dinámico, que
-          sigue al precio, y la salida de canal). <b>TP</b> = mejor precio alcanzado desde la entrada, el lado donde el trailing
-          va tomando ganancia. <b>Asegura</b> = lo que el SL ya protege frente a la entrada (verde = ganancia asegurada aunque
-          el precio se dé la vuelta). Barra <b>SL ⇄ TP</b>: rojo = stop, verde = mejor precio, línea punteada = entrada,
-          punto = precio actual. Si el precio ya cruzó el SL entre velas (aparece <b>"saliendo"</b>), el bot cierra la posición
-          en la evaluación de la próxima vela — por eso el SL puede quedar "detrás" del precio unos minutos.
+          sigue al precio, y la salida de canal) — al valor de hoy, saldría ahí. <b>Gana desde</b> = precio que el mercado
+          tiene que tocar para que el stop cruce la entrada: a partir de ahí la salida queda asegurada en ganancia, y cada
+          nuevo extremo asegura más (✓ = ya conseguido; la estrategia no usa take-profit fijo, deja correr con trailing).
+          <b> Estado</b> = qué hará el bot en la próxima vela según la señal oficial del motor: "sigue" (con la distancia al
+          stop), "stop tocado" (el precio cruzó el stop dentro de la vela en curso) o <b>"cierra próx. vela"</b> (la señal del
+          motor ya está en plano o en contra: el bot manda la orden de cierre en la próxima evaluación horaria).
+          Barra <b>SL ⇄ TP</b>: rojo = stop, verde = mejor precio, línea punteada = entrada, punto = precio actual.
           Niveles en vivo con velas de Binance y los parámetros del motor.</p>
       </div>
 
