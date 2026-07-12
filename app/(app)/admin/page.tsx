@@ -172,6 +172,31 @@ export default function Admin() {
     return { upnl, exp, n: poss.length };
   };
 
+  // Drawdown MÁXIMO — misma definición que la vista de la cuenta: la mayor
+  // caída desde el pico de la serie equity − heredado, incluyendo el punto en
+  // vivo. (El dd_pct del snapshot es el retroceso ACTUAL, no el máximo.)
+  const ddMaxOf = (id: string): number | null => {
+    const arr = histByClient.get(id) ?? [];
+    if (arr.length < 2) return null;
+    const hf = (attribByClient.get(id)?.heredadoFills ?? [])
+      .map((h) => ({ t: new Date(h.ts).getTime(), usd: h.usd })).sort((a, b) => a.t - b.t);
+    const heredadoHasta = (t: number) => hf.reduce((a, h) => a + (h.t <= t ? h.usd : 0), 0);
+    let peak = -Infinity, dd = 0;
+    for (const s of arr) {
+      const eq = s.equity - heredadoHasta(new Date(s.ts).getTime());
+      peak = Math.max(peak, eq);
+      if (peak > 0) dd = Math.min(dd, (eq / peak - 1) * 100);
+    }
+    const last = arr[arr.length - 1];
+    const ls = liveStatsOf(id);
+    if (ls && last.unrealized_pnl != null) {
+      const eqNow = last.equity + (ls.upnl - last.unrealized_pnl) - heredadoHasta(Date.now());
+      peak = Math.max(peak, eqNow);
+      if (peak > 0) dd = Math.min(dd, (eqNow / peak - 1) * 100);
+    }
+    return dd;
+  };
+
   // PnL atribuido al BOT — MISMA fórmula que la vista de la cuenta (AccountView):
   // equity − capital inicial − cierres heredados (posiciones previas al bot),
   // ajustado con el uPnL EN VIVO para que tarjeta y detalle coincidan siempre.
@@ -274,7 +299,10 @@ export default function Admin() {
                 <div className="mm"><div className={`v ${pnlClass(realizado)}`}>{realizado == null ? "—" : `$${fmtUsd(realizado, 0)}`}</div><div className="l">Realizado</div></div>
                 <div className="mm"><div className="v">${fmtUsd(liveStatsOf(c.id)?.exp ?? s?.exposure_notional ?? null, 0)}</div><div className="l">Exposición</div></div>
                 <div className="mm"><div className="v">{liveStatsOf(c.id)?.n ?? s?.open_positions ?? "—"}</div><div className="l">Posiciones</div></div>
-                <div className="mm"><div className={`v ${s ? pnlClass(-Math.abs(s.dd_pct)) : ""}`}>{s ? fmtPct(s.dd_pct, 1) : "—"}</div><div className="l">Drawdown</div></div>
+                <div className="mm" title="Drawdown máximo: la mayor caída desde el pico de la cuenta — mismo número que dentro de la cuenta">
+                  <div className={`v ${pnlClass(ddMaxOf(c.id) ?? (s ? -Math.abs(s.dd_pct) : null))}`}>{ddMaxOf(c.id) != null ? fmtPct(ddMaxOf(c.id), 1) : s ? fmtPct(s.dd_pct, 1) : "—"}</div>
+                  <div className="l">DD máx.</div>
+                </div>
                 <div className="mm"><div className="v">{c.risk_profiles?.name?.split(" ")[0] ?? "—"}</div><div className="l">Perfil</div></div>
               </div>
 
