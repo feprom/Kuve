@@ -1,0 +1,223 @@
+"use client";
+import { useEffect, useState } from "react";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { fmtUsd, fmtDate, pnlClass } from "@/lib/format";
+import AssetName from "@/components/AssetName";
+
+type Trade = { id: number; ts: string; symbol: string; side: string; tag: string; profit: number; commission: number; cum: number; qty: number | null; price: number | null };
+type Order = { id: number; ts: string; symbol: string; side: string; qty: number; status: string; reduce_only: boolean; error: string | null };
+type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string };
+type Income = { income_type: string; income: number; ts: string; symbol: string | null };
+
+export default function History() {
+  const [tab, setTab] = useState<"trades" | "orders" | "costos">("trades");
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [income, setIncome] = useState<Income[]>([]);
+  const [signals, setSignals] = useState<Signal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fSymbol, setFSymbol] = useState<string>("all");
+  const [fSide, setFSide] = useState<string>("all");
+
+  useEffect(() => {
+    (async () => {
+      const sb = supabaseBrowser();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) return;
+      const { data: c } = await sb.from("clients").select("id, risk_profiles(atr_mult)")
+        .eq("auth_uid", user.id).single();
+      if (c) {
+        const atr = (c as any).risk_profiles?.atr_mult;
+        const variant = atr == null ? "default"
+          : `atr${Number.isInteger(Number(atr)) ? parseInt(String(atr)) : atr}`;
+        // costos SOLO del bot: desde su puesta en marcha (primer snapshot)
+        const { data: firstSnap } = await sb.from("account_snapshots").select("ts")
+          .eq("client_id", c.id).order("ts", { ascending: true }).limit(1);
+        const botStart = firstSnap?.[0]?.ts ?? "1970-01-01";
+        const [t, o, s, inc] = await Promise.all([
+          sb.from("trades").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
+          sb.from("orders").select("*").eq("client_id", c.id).order("ts", { ascending: false }).limit(100),
+          sb.from("strategy_signals").select("*").eq("variant", variant)
+            .order("bar_time", { ascending: false }).limit(8),
+          sb.from("account_income").select("income_type, income, ts, symbol").eq("client_id", c.id)
+            .in("income_type", ["COMMISSION", "FUNDING_FEE"])
+            .gte("ts", botStart)
+            .order("ts", { ascending: false }).limit(5000),
+        ]);
+        const trs = (t.data ?? []) as Trade[];
+        setTrades(trs); setOrders(o.data ?? []); setSignals(s.data ?? []);
+        // comisiones: solo las de fills del bot (fill a ±5 min de un trade
+        // registrado, o de una posición que el bot abrió antes) — misma regla
+        // que la atribución del dashboard (lib/pnl.ts). Funding: todo desde el
+        // alta (la cuenta la gestiona el bot desde entonces).
+        const ords = (o.data ?? []) as Order[];
+        const activity = [
+          ...trs.map((x) => ({ symbol: x.symbol, ts: x.ts })),
+          ...ords.filter((x) => x.status === "filled").map((x) => ({ symbol: x.symbol, ts: x.ts })),
+        ];
+        const opens = [
+          ...trs.filter((x) => !x.profit).map((x) => ({ symbol: x.symbol, ts: x.ts })),
+          ...ords.filter((x) => x.status === "filled" && !x.reduce_only).map((x) => ({ symbol: x.symbol, ts: x.ts })),
+        ];
+        const near = (sym: string | null, ts: string, winMs: number) =>
+          !!sym && activity.some((x) => x.symbol === sym &&
+            Math.abs(new Date(x.ts).getTime() - new Date(ts).getTime()) <= winMs);
+        const opensBefore = (sym: string | null, ts: string) =>
+          !!sym && opens.some((x) => x.symbol === sym &&
+            new Date(x.ts).getTime() < new Date(ts).getTime() - 120e3);
+        setIncome(((inc.data ?? []) as Income[]).filter((x) =>
+          x.income_type === "FUNDING_FEE" || near(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts)));
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div className="muted">Cargando…</div>;
+  const sideName = (s: number) => (s === 1 ? "LARGO" : s === -1 ? "CORTO" : "PLANO");
+
+  const symbols = Array.from(new Set([...trades.map((t) => t.symbol), ...orders.map((o) => o.symbol)]
+    .filter(Boolean))).sort();
+  const lastPrice: Record<string, number> = Object.fromEntries(
+    signals.map((s) => [s.symbol, s.price]));
+  const ftrades = trades.filter((t) =>
+    (fSymbol === "all" || t.symbol === fSymbol) && (fSide === "all" || t.side === fSide));
+  const forders = orders.filter((o) =>
+    (fSymbol === "all" || o.symbol === fSymbol) && (fSide === "all" || o.side === fSide));
+
+  // Costos (comisiones + funding) agregados por mes, del ledger de Binance
+  const fincome = income.filter((x) => fSymbol === "all" || x.symbol === fSymbol);
+  const meses = new Map<string, { comisiones: number; funding: number }>();
+  for (const x of fincome) {
+    const m = x.ts.slice(0, 7);
+    const e = meses.get(m) ?? { comisiones: 0, funding: 0 };
+    if (x.income_type === "COMMISSION") e.comisiones += Number(x.income || 0);
+    else e.funding += Number(x.income || 0);
+    meses.set(m, e);
+  }
+  const costosMes = Array.from(meses.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  const totCom = costosMes.reduce((a, [, v]) => a + v.comisiones, 0);
+  const totFun = costosMes.reduce((a, [, v]) => a + v.funding, 0);
+
+  function exportCsv() {
+    const rows: string[][] = tab === "trades"
+      ? [["fecha", "activo", "operacion", "cantidad", "precio", "profit", "comision", "acumulado"],
+         ...ftrades.map((t) => [t.ts, t.symbol ?? "", t.side ?? "", String(t.qty ?? ""),
+           String(t.price ?? ""), String(t.profit ?? ""), String(t.commission ?? ""), String(t.cum ?? "")])]
+      : tab === "costos"
+      ? [["mes", "comisiones", "funding", "total"],
+         ...costosMes.map(([m, v]) => [m, v.comisiones.toFixed(4), v.funding.toFixed(4),
+           (v.comisiones + v.funding).toFixed(4)])]
+      : [["fecha", "activo", "lado", "cantidad", "reduce_only", "estado", "error"],
+         ...forders.map((o) => [o.ts, o.symbol, o.side, String(o.qty),
+           String(o.reduce_only), o.status, o.error ?? ""])];
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kuve_${tab}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <>
+      <div className="pagetitle">Historial</div>
+      <div className="tabs">
+        <div className={`tab ${tab === "trades" ? "active" : ""}`} onClick={() => setTab("trades")}>Trades</div>
+        <div className={`tab ${tab === "orders" ? "active" : ""}`} onClick={() => setTab("orders")}>Órdenes</div>
+        <div className={`tab ${tab === "costos" ? "active" : ""}`} onClick={() => setTab("costos")}>Costos</div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <select value={fSymbol} onChange={(e) => setFSymbol(e.target.value)}>
+          <option value="all">Todos los activos</option>
+          {symbols.map((s) => <option key={s} value={s}>{s.replace("USDT", "")}</option>)}
+        </select>
+        <select value={fSide} onChange={(e) => setFSide(e.target.value)}>
+          <option value="all">Compras y ventas</option>
+          <option value="BUY">Compras (BUY)</option>
+          <option value="SELL">Ventas (SELL)</option>
+        </select>
+        <button className="btn-mini" onClick={exportCsv} title="Descargar CSV">⬇ CSV</button>
+      </div>
+
+      {tab === "trades" && (
+        <div className="card">
+          <h2>Trades ejecutados</h2>
+          {ftrades.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin operaciones con esos filtros</div> : (
+            <table>
+              <thead><tr><th>Fecha</th><th>Activo</th><th>Op.</th><th>Profit</th><th>Comisión</th><th>Acum.</th></tr></thead>
+              <tbody>
+                {ftrades.map((t) => (
+                  <tr key={t.id}>
+                    <td>{fmtDate(t.ts)}</td>
+                    <td>{t.symbol ? <AssetName symbol={t.symbol} price={lastPrice[t.symbol]} /> : "—"}</td>
+                    <td>{t.side}</td>
+                    <td className={pnlClass(t.profit)}>{fmtUsd(t.profit)}</td>
+                    <td className={t.commission ? "neg" : "muted"}>{t.commission ? fmtUsd(t.commission) : "—"}</td>
+                    <td className={pnlClass(t.cum)}>{fmtUsd(t.cum)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {tab === "costos" && (
+        <div className="card">
+          <h2>Costos de operación (comisiones y funding)</h2>
+          {costosMes.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin costos registrados aún</div> : (
+            <>
+              <table>
+                <thead><tr><th>Mes</th><th>Comisiones</th><th>Funding</th><th>Total</th></tr></thead>
+                <tbody>
+                  {costosMes.map(([m, v]) => (
+                    <tr key={m}>
+                      <td>{m}</td>
+                      <td className={pnlClass(v.comisiones)}>{fmtUsd(v.comisiones)}</td>
+                      <td className={pnlClass(v.funding)}>{fmtUsd(v.funding)}</td>
+                      <td className={pnlClass(v.comisiones + v.funding)}><b>{fmtUsd(v.comisiones + v.funding)}</b></td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td><b>Total</b></td>
+                    <td className={pnlClass(totCom)}><b>{fmtUsd(totCom)}</b></td>
+                    <td className={pnlClass(totFun)}><b>{fmtUsd(totFun)}</b></td>
+                    <td className={pnlClass(totCom + totFun)}><b>{fmtUsd(totCom + totFun)}</b></td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="note">Del ledger de Binance (account_income). Comisiones = fees de ejecución de cada fill.
+                Funding = pagos/cobros periódicos de futuros perpetuos (positivo = cobrado a tu favor).
+                El funding se sincroniza con el job de income del bot.</p>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "orders" && (
+        <div className="card">
+          <h2>Órdenes enviadas</h2>
+          {forders.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin órdenes con esos filtros</div> : (
+            <table>
+              <thead><tr><th>Fecha</th><th>Activo</th><th>Lado</th><th>Qty</th><th>Estado</th></tr></thead>
+              <tbody>
+                {forders.map((o) => (
+                  <tr key={o.id} title={o.error ?? undefined}>
+                    <td>{fmtDate(o.ts)}</td>
+                    <td><AssetName symbol={o.symbol} price={lastPrice[o.symbol]} /></td>
+                    <td className={o.side === "BUY" ? "pos" : "neg"}>{o.side}{o.reduce_only ? " (cierre)" : ""}</td>
+                    <td>{o.qty}</td>
+                    <td className={o.status === "filled" ? "pos" : o.status === "error" ? "neg" : "muted"}>{o.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+    </>
+  );
+}
