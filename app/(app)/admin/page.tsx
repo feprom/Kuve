@@ -97,13 +97,17 @@ export default function Admin() {
       const pbLatest = new Map<string, Pos[]>();
       for (const [cid, arr] of Array.from(pb.entries())) {
         const lastBar = arr[arr.length - 1].bar_time;
+        // deduplicar PRIMERO (fila más nueva por id gana, incluye cierres con
+        // pos_amt=0) y filtrar ceros AL FINAL — si no, un cierre reciente
+        // queda tapado por la fila vieja cuando el bot reprocesa la vela.
         const seen = new Map<string, Pos>();
         for (const p of arr) {
-          if (p.bar_time !== lastBar || p.pos_amt === 0) continue;
+          if (p.bar_time !== lastBar) continue;
           const prev = seen.get(p.symbol);
           if (!prev || p.id > prev.id) seen.set(p.symbol, p);
         }
-        pbLatest.set(cid, Array.from(seen.values()).sort((a, b) => a.symbol.localeCompare(b.symbol)));
+        pbLatest.set(cid, Array.from(seen.values()).filter((p) => p.pos_amt !== 0)
+          .sort((a, b) => a.symbol.localeCompare(b.symbol)));
       }
       setPosByClient(pbLatest);
     })();

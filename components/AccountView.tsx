@@ -89,7 +89,11 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
       setBench((b as any).data ?? []);
       setSignals(((sig as any).data ?? []) as Signal[]);
       setTrades(((t as any).data ?? []) as Trade[]);
-      setPositions(dedupeBySymbol((((p as any).data ?? []) as Pos[]).filter((r) => r.pos_amt !== 0)));
+      // IMPORTANTE: deduplicar PRIMERO (gana la fila más nueva por id) y recién
+      // después filtrar los ceros. Si se filtra antes, una fila vieja "abierta"
+      // le gana a la fila nueva que registró el cierre (pos_amt=0) cuando el
+      // bot reprocesa la misma vela tras un reinicio.
+      setPositions(dedupeBySymbol((((p as any).data ?? []) as Pos[])).filter((r) => r.pos_amt !== 0));
       setIncome(attributeIncome(((inc as any).data ?? []), ((t as any).data ?? []), ((ord as any).data ?? [])));
       setLoading(false);
     })();
