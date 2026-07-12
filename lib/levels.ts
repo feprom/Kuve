@@ -28,6 +28,7 @@ export type Levels = {
   slTrail: number;   // stop dinámico (trailing ATR)
   slChan: number;    // salida de canal
   slEff: number;     // el que se toca primero
+  best: number;      // mejor precio desde la entrada (extremo del trailing = lado de toma de ganancias)
   distPct: number;   // distancia del precio al SL efectivo (%; margen restante)
   lockedPct: number; // % asegurado respecto a la entrada (>0 = el stop ya protege ganancia)
 };
@@ -72,9 +73,10 @@ export async function computeLevels(
     const slTrail = short ? loSince + prm.am * atr : hiSince - prm.am * atr;
     const slChan = short ? chanHi : chanLo;
     const slEff = short ? Math.min(slTrail, slChan) : Math.max(slTrail, slChan);
+    const best = short ? loSince : hiSince;
     const distPct = (short ? slEff / price - 1 : 1 - slEff / price) * 100;
     const lockedPct = entryPrice ? (short ? 1 - slEff / entryPrice : slEff / entryPrice - 1) * 100 : 0;
-    return { price, slTrail, slChan, slEff, distPct, lockedPct };
+    return { price, slTrail, slChan, slEff, best, distPct, lockedPct };
   } catch {
     return null;
   }

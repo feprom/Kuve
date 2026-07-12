@@ -4,10 +4,11 @@ import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Sparkline from "@/components/Sparkline";
+import { attributeIncome, Attribution, IncomeRow, BotTradeLike } from "@/lib/pnl";
 
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
 type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
-type Snap = { client_id: string; ts: string; equity: number; start_equity: number; realized_cum: number; exposure_notional: number; open_positions: number; dd_pct: number };
+type Snap = { client_id: string; ts: string; equity: number; start_equity: number; realized_cum: number; exposure_notional: number; open_positions: number; dd_pct: number; unrealized_pnl: number };
 type Evt = { id: number; ts: string; client_id: string | null; kind: string; level: string; detail: any };
 
 /** First day of next month, 00:00 UTC. */
@@ -21,6 +22,7 @@ export default function Admin() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [clients, setClients] = useState<Cli[]>([]);
   const [histByClient, setHistByClient] = useState<Map<string, Snap[]>>(new Map());
+  const [attribByClient, setAttribByClient] = useState<Map<string, Attribution | null>>(new Map());
   const [events, setEvents] = useState<Evt[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -42,13 +44,15 @@ export default function Admin() {
       const { data: adm } = await sb.from("admin_users").select("auth_uid").eq("auth_uid", user.id);
       if (!adm?.length) { setIsAdmin(false); return; }
       setIsAdmin(true);
-      const [r, c, s, e] = await Promise.all([
+      const [r, c, s, e, inc, tr] = await Promise.all([
         sb.from("bot_runs").select("*").order("id", { ascending: false }).limit(12),
         sb.from("clients").select("*, risk_profiles(name)").order("created_at"),
         sb.from("account_snapshots")
-          .select("client_id, ts, equity, start_equity, realized_cum, exposure_notional, open_positions, dd_pct")
+          .select("client_id, ts, equity, start_equity, realized_cum, exposure_notional, open_positions, dd_pct, unrealized_pnl")
           .order("ts", { ascending: true }).limit(6000),
         sb.from("events").select("*").order("ts", { ascending: false }).limit(30),
+        sb.from("account_income").select("client_id, income_type, income, ts, symbol").limit(10000),
+        sb.from("trades").select("client_id, symbol, ts, profit").limit(2000),
       ]);
       setRuns(r.data ?? []);
       setClients(c.data ?? []);
@@ -59,6 +63,19 @@ export default function Admin() {
         byClient.set(row.client_id, arr);
       }
       setHistByClient(byClient);
+      // Atribucion del PnL al bot por cliente (lib/pnl.ts): ledger desde el
+      // primer snapshot de cada cliente + sus trades registrados por el bot.
+      const attrib = new Map<string, Attribution | null>();
+      const incRows = ((inc as any).data ?? []) as (IncomeRow & { client_id: string })[];
+      const trRows = ((tr as any).data ?? []) as (BotTradeLike & { client_id: string })[];
+      for (const [cid, arr] of Array.from(byClient.entries())) {
+        const t0 = arr[0] ? new Date(arr[0].ts).getTime() : 0;
+        attrib.set(cid, attributeIncome(
+          incRows.filter((x) => x.client_id === cid && new Date(x.ts).getTime() >= t0),
+          trRows.filter((x) => x.client_id === cid),
+        ));
+      }
+      setAttribByClient(attrib);
       setEvents(e.data ?? []);
     })();
   }, []);
@@ -87,12 +104,19 @@ export default function Admin() {
     return pts;
   };
 
+  // PnL atribuido al BOT: realizado neto (ledger) + no realizado; si el ledger
+  // de un cliente aun no sincroniza, cae a equity - capital inicial.
+  const pnlBotOf = (id: string): number | null => {
+    const s = latestOf(id);
+    if (!s) return null;
+    const a = attribByClient.get(id);
+    if (a) return a.realizadoNeto + (s.unrealized_pnl ?? 0);
+    return s.start_equity ? s.equity - s.start_equity : null;
+  };
+
   const active = clients.filter((c) => c.enabled);
   const aum = active.reduce((a, c) => a + (latestOf(c.id)?.equity ?? 0), 0);
-  const pnlTotal = active.reduce((a, c) => {
-    const s = latestOf(c.id);
-    return a + (s && s.start_equity ? s.equity - s.start_equity : 0);
-  }, 0);
+  const pnlTotal = active.reduce((a, c) => a + (pnlBotOf(c.id) ?? 0), 0);
   const exposure = active.reduce((a, c) => a + (latestOf(c.id)?.exposure_notional ?? 0), 0);
   const cutoff = nextCutoff();
 
@@ -104,7 +128,7 @@ export default function Admin() {
 
       <div className="metric-row">
         <div className="metric"><div className="v">${fmtUsd(aum, 0)}</div><div className="l">Capital gestionado (AUM)</div></div>
-        <div className="metric"><div className={`v ${pnlClass(pnlTotal)}`}>{fmtUsd(pnlTotal, 0)}</div><div className="l">Ganancia acumulada clientes</div></div>
+        <div className="metric"><div className={`v ${pnlClass(pnlTotal)}`}>{fmtUsd(pnlTotal, 0)}</div><div className="l">PnL del bot (clientes activos)</div></div>
         <div className="metric"><div className="v">{active.length}/{clients.length}</div><div className="l">Clientes activos</div></div>
         <div className="metric"><div className="v">${fmtUsd(exposure, 0)}</div><div className="l">Exposición total</div></div>
       </div>
@@ -112,8 +136,8 @@ export default function Admin() {
       <div className="admin-grid">
         {clients.map((c) => {
           const s = latestOf(c.id);
-          const pnl = s && s.start_equity ? s.equity - s.start_equity : null;
-          const pnlPct = s && s.start_equity ? (s.equity / s.start_equity - 1) * 100 : null;
+          const pnl = pnlBotOf(c.id);
+          const pnlPct = s && s.start_equity && pnl != null ? (pnl / s.start_equity) * 100 : null;
           const spark = sparkOf(c.id);
           const sparkColor = pnl == null ? "var(--accent)" : pnl >= 0 ? "var(--green)" : "var(--red)";
           return (
@@ -131,7 +155,7 @@ export default function Admin() {
               <div>
                 <div className="cc-equity">{s ? `$${fmtUsd(s.equity, 0)}` : "—"}</div>
                 <div className={`cc-pnl ${pnlClass(pnl)}`}>
-                  {pnl == null ? "Sin datos" : `${fmtUsd(pnl, 0)} (${fmtPct(pnlPct, 1)})`}
+                  {pnl == null ? "Sin datos" : `${fmtUsd(pnl, 0)} (${fmtPct(pnlPct, 1)}) · PnL bot`}
                 </div>
               </div>
 

@@ -6,7 +6,9 @@ import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import PerfChart from "@/components/PerfChart";
 import AssetName from "@/components/AssetName";
 import TriggerGauge from "@/components/TriggerGauge";
+import LevelBar from "@/components/LevelBar";
 import { computeLevels, Levels } from "@/lib/levels";
+import { attributeIncome, Attribution } from "@/lib/pnl";
 
 type Client = {
   id: string; name: string; email: string | null; mode: string; enabled: boolean;
@@ -31,14 +33,6 @@ type Report = {
 };
 
 type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string; created_at: string };
-type Income = {
-  mercado: number;        // cierres atribuibles al bot
-  heredado: number;       // cierres de posiciones previas al bot (excluidos del PnL del bot)
-  comisiones: number;     // comisiones de fills del bot
-  funding: number;        // funding de las posiciones gestionadas
-  transfers: number;
-  hasta: string | null;
-};
 
 type Tab = "resumen" | "posiciones" | "historial" | "eventos" | "cortes";
 
@@ -73,7 +67,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
   const [positions, setPositions] = useState<Pos[]>([]);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [levels, setLevels] = useState<Record<string, Levels | null>>({});
-  const [income, setIncome] = useState<Income | null>(null);
+  const [income, setIncome] = useState<Attribution | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [events, setEvents] = useState<Evt[]>([]);
@@ -129,33 +123,9 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
         ? sb.from("account_income").select("income_type, income, ts, symbol").eq("client_id", id).gte("ts", snapRows[0].ts).limit(5000)
         : Promise.resolve({ data: [] as any[] }),
     ]);
-    // Realizado según el LEDGER de Binance, ATRIBUIDO AL BOT: un cierre cuenta
-    // solo si el bot registró antes la apertura de esa posición (trade con
-    // profit=0 del mismo símbolo, al menos 2 min antes del fill). Los cierres
-    // de posiciones previas al bot (heredadas/adoptadas) se separan en
-    // "heredado" y NO entran al PnL del bot.
-    {
-      const rows = ((inc as any).data ?? []) as { income_type: string; income: number; ts: string; symbol: string | null }[];
-      const botTrades = ((t as any).data ?? []) as Trade[];
-      const opensBefore = (sym: string | null, ts: string, marginMs: number) =>
-        !!sym && botTrades.some((tr) => tr.symbol === sym && !tr.profit && new Date(tr.ts).getTime() < new Date(ts).getTime() - marginMs);
-      const nearTrade = (sym: string | null, ts: string, winMs: number) =>
-        !!sym && botTrades.some((tr) => tr.symbol === sym && Math.abs(new Date(tr.ts).getTime() - new Date(ts).getTime()) <= winMs);
-      let mercado = 0, heredado = 0, comisiones = 0, funding = 0, transfers = 0;
-      for (const x of rows) {
-        const v = Number(x.income || 0);
-        if (x.income_type === "REALIZED_PNL") {
-          if (opensBefore(x.symbol, x.ts, 120e3)) mercado += v; else heredado += v;
-        } else if (x.income_type === "COMMISSION") {
-          if (nearTrade(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts, 120e3)) comisiones += v;
-        } else if (x.income_type === "FUNDING_FEE") funding += v;
-        else if (x.income_type === "TRANSFER") transfers += v;
-      }
-      // Sin filas en el ledger (sync aun no corrido para este cliente) ->
-      // income = null y la UI cae al contador del bot en vez de mostrar ceros.
-      setIncome(rows.length ? { mercado, heredado, comisiones, funding, transfers,
-        hasta: rows.map((x) => x.ts).sort().slice(-1)[0] } : null);
-    }
+    // Atribución del PnL al bot desde el ledger (lib/pnl.ts). Sin filas en el
+    // ledger -> null y la UI cae al contador del bot.
+    setIncome(attributeIncome(((inc as any).data ?? []), ((t as any).data ?? [])));
     setSignals(((sig as any).data ?? []) as Signal[]);
     setSnaps(snapRows);
     setBench((b as any).data ?? []);
@@ -221,14 +191,19 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
   const pnlAbs = income != null && last ? (realizadoBot as number) + (last.unrealized_pnl ?? 0) : cuentaAbs;
   const totalPct = last?.start_equity && pnlAbs != null ? (pnlAbs / last.start_equity) * 100 : null;
 
-  const stratPts = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index - 100 }));
+  // Rendimiento DESDE LA ENTRADA del cliente: ambas curvas parten de 0% en su
+  // fecha de entrada (la estrategia se re-basa a su nivel de ese dia).
   const entryTs = snaps.length ? new Date(snaps[0].ts).getTime() : null;
-  let clientPts: { x: number; y: number }[] = [];
-  if (entryTs != null && last?.start_equity) {
-    let anchor = 0;
-    for (const p of stratPts) if (p.x <= entryTs) anchor = p.y;
-    clientPts = snaps.map((s) => ({ x: new Date(s.ts).getTime(), y: anchor + (s.equity / last.start_equity - 1) * 100 }));
+  const benchAll = bench.map((b) => ({ x: new Date(b.date + "T00:00:00Z").getTime(), y: b.equity_index }));
+  let stratPts: { x: number; y: number }[] = [];
+  if (entryTs != null && benchAll.length) {
+    let base = benchAll[0].y;
+    for (const p of benchAll) if (p.x <= entryTs) base = p.y;
+    stratPts = benchAll.filter((p) => p.x >= entryTs - 86400e3).map((p) => ({ x: p.x, y: (p.y / base - 1) * 100 }));
   }
+  const clientPts: { x: number; y: number }[] = last?.start_equity
+    ? snaps.map((s) => ({ x: new Date(s.ts).getTime(), y: (s.equity / last.start_equity - 1) * 100 }))
+    : [];
   const series = [
     { label: `Estrategia ${client.risk_profiles?.name ?? ""}`.trim(), color: "#3d996f", points: stratPts },
     ...(clientPts.length > 1 ? [{ label: "Cuenta del cliente", color: "var(--accent)", points: clientPts }] : []),
@@ -345,10 +320,10 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
               (ahí sí entra todo, incluido lo heredado{income && income.transfers !== 0 ? " y depósitos/retiros" : ""}).
               {income?.hasta ? ` Ledger sincronizado hasta ${fmtDate(income.hasta)}; los fills posteriores aparecen al correr el sync.` : ""}</p>
             <div className="card">
-              <h2>Estrategia vs cuenta del cliente (YTD, en %)</h2>
+              <h2>Estrategia vs cuenta del cliente — desde su entrada (en %)</h2>
               <PerfChart series={series} markerX={entryTs} markerLabel="Entrada" />
-              <p className="note">Verde: la estrategia KV-9014 con el perfil del cliente, del 1 de enero a hoy.
-                Azul: la cuenta real del cliente, anclada al nivel de la estrategia en su fecha de entrada. Este gráfico conserva todo el histórico (no se fija a la última vela).</p>
+              <p className="note">Ambas curvas parten de 0% en la fecha de entrada del cliente. Verde: la estrategia KV-9014
+                con su perfil, re-basada a ese día. Azul: su cuenta real (equity vs capital inicial).</p>
             </div>
           </>
         )
@@ -365,7 +340,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
                 <div style={{ overflowX: "auto" }}>
                   <table>
                     <thead><tr><th>Activo</th><th>Lado</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th>
-                      <th>Stop dinámico</th><th>Salida canal</th><th>Sale en</th><th>Dist.</th><th>Asegura</th></tr></thead>
+                      <th>Stop dinámico</th><th>Salida canal</th><th>Sale en</th><th>Dist.</th><th>Asegura</th><th>SL ⇄ TP</th></tr></thead>
                     <tbody>
                       {positions.map((p) => {
                         const notional = Math.abs(p.pos_amt * p.price);
@@ -387,9 +362,12 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
                                 <td><b>{fmtUsd(lv.slEff)}</b></td>
                                 <td className="muted">{lv.distPct.toFixed(1)}%</td>
                                 <td className={pnlClass(lv.lockedPct)}>{lv.lockedPct >= 0 ? `+${lv.lockedPct.toFixed(1)}%` : `${lv.lockedPct.toFixed(1)}%`}</td>
+                                <td title={`SL ${lv.slEff} · mejor precio ${lv.best}`}>
+                                  <LevelBar sl={lv.slEff} best={lv.best} price={lv.price} entry={p.entry_price} />
+                                </td>
                               </>
                             ) : (
-                              <td colSpan={5} className="muted">calculando…</td>
+                              <td colSpan={6} className="muted">calculando…</td>
                             )}
                           </tr>
                         );
@@ -401,6 +379,8 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
               <p className="note">La posición cierra en el nivel "Sale en" (el primero que se toque entre el <b>stop dinámico</b>, que
                 sube/baja con el precio, y la <b>salida de canal</b>). "Asegura" = resultado que ya protege ese nivel frente a la entrada:
                 positivo (verde) = toma de ganancia asegurada aunque el precio se dé la vuelta; negativo = pérdida máxima restante.
+                En el slider <b>SL ⇄ TP</b>: extremo rojo = nivel de salida por stop, extremo verde = mejor precio alcanzado
+                (donde el trailing va tomando ganancia), línea punteada = entrada, punto = precio actual.
                 Niveles calculados en vivo con velas de Binance y los parámetros del motor.</p>
             </div>
 
