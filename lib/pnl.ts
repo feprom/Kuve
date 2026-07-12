@@ -13,6 +13,7 @@ export type BotTradeLike = { symbol: string | null; ts: string; profit: number |
 export type Attribution = {
   mercado: number;      // cierres atribuibles al bot
   heredado: number;     // cierres de posiciones previas al bot (excluido)
+  heredadoFills: { ts: string; usd: number }[]; // detalle para ajustar la curva de equity
   comisiones: number;
   funding: number;
   transfers: number;
@@ -29,17 +30,19 @@ export function attributeIncome(rows: IncomeRow[], botTrades: BotTradeLike[]): A
     !!sym && botTrades.some((tr) => tr.symbol === sym &&
       Math.abs(new Date(tr.ts).getTime() - new Date(ts).getTime()) <= winMs);
   let mercado = 0, heredado = 0, comisiones = 0, funding = 0, transfers = 0;
+  const heredadoFills: { ts: string; usd: number }[] = [];
   for (const x of rows) {
     const v = Number(x.income || 0);
     if (x.income_type === "REALIZED_PNL") {
-      if (opensBefore(x.symbol, x.ts, 120e3)) mercado += v; else heredado += v;
+      if (opensBefore(x.symbol, x.ts, 120e3)) mercado += v;
+      else { heredado += v; heredadoFills.push({ ts: x.ts, usd: v }); }
     } else if (x.income_type === "COMMISSION") {
       if (nearTrade(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts, 120e3)) comisiones += v;
     } else if (x.income_type === "FUNDING_FEE") funding += v;
     else if (x.income_type === "TRANSFER") transfers += v;
   }
   return {
-    mercado, heredado, comisiones, funding, transfers,
+    mercado, heredado, heredadoFills, comisiones, funding, transfers,
     realizadoNeto: mercado + comisiones + funding,
     hasta: rows.map((x) => x.ts).sort().slice(-1)[0] ?? null,
   };
