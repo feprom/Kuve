@@ -9,6 +9,7 @@ import { attributeIncome, Attribution, IncomeRow, BotTradeLike } from "@/lib/pnl
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
 type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
 type Snap = { client_id: string; ts: string; equity: number; start_equity: number; realized_cum: number; exposure_notional: number; open_positions: number; dd_pct: number; unrealized_pnl: number };
+type Pos = { id: number; client_id: string; bar_time: string; symbol: string; side: string; pos_amt: number; entry_price: number; price: number };
 type Evt = { id: number; ts: string; client_id: string | null; kind: string; level: string; detail: any };
 
 /** First day of next month, 00:00 UTC. */
@@ -24,6 +25,8 @@ export default function Admin() {
   const [histByClient, setHistByClient] = useState<Map<string, Snap[]>>(new Map());
   const [attribByClient, setAttribByClient] = useState<Map<string, Attribution | null>>(new Map());
   const [events, setEvents] = useState<Evt[]>([]);
+  const [posByClient, setPosByClient] = useState<Map<string, Pos[]>>(new Map());
+  const [livePx, setLivePx] = useState<Record<string, number>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function toggleClient(id: string, enabled: boolean) {
@@ -44,7 +47,7 @@ export default function Admin() {
       const { data: adm } = await sb.from("admin_users").select("auth_uid").eq("auth_uid", user.id);
       if (!adm?.length) { setIsAdmin(false); return; }
       setIsAdmin(true);
-      const [r, c, s, e, inc, tr] = await Promise.all([
+      const [r, c, s, e, inc, tr, ps] = await Promise.all([
         sb.from("bot_runs").select("*").order("id", { ascending: false }).limit(12),
         sb.from("clients").select("*, risk_profiles(name)").order("created_at"),
         sb.from("account_snapshots")
@@ -53,6 +56,9 @@ export default function Admin() {
         sb.from("events").select("*").order("ts", { ascending: false }).limit(30),
         sb.from("account_income").select("client_id, income_type, income, ts, symbol").limit(10000),
         sb.from("trades").select("client_id, symbol, ts, profit").limit(2000),
+        sb.from("positions").select("id, client_id, bar_time, symbol, side, pos_amt, entry_price, price")
+          .gte("bar_time", new Date(Date.now() - 26 * 3600e3).toISOString())
+          .order("bar_time", { ascending: true }).limit(4000),
       ]);
       setRuns(r.data ?? []);
       setClients(c.data ?? []);
@@ -77,8 +83,49 @@ export default function Admin() {
       }
       setAttribByClient(attrib);
       setEvents(e.data ?? []);
+      // posiciones abiertas de la ÚLTIMA vela de cada cliente
+      const pb = new Map<string, Pos[]>();
+      for (const row of ((ps as any).data ?? []) as Pos[]) {
+        const arr = pb.get(row.client_id) ?? [];
+        arr.push(row);
+        pb.set(row.client_id, arr);
+      }
+      const pbLatest = new Map<string, Pos[]>();
+      for (const [cid, arr] of Array.from(pb.entries())) {
+        const lastBar = arr[arr.length - 1].bar_time;
+        const seen = new Map<string, Pos>();
+        for (const p of arr) {
+          if (p.bar_time !== lastBar || p.pos_amt === 0) continue;
+          const prev = seen.get(p.symbol);
+          if (!prev || p.id > prev.id) seen.set(p.symbol, p);
+        }
+        pbLatest.set(cid, Array.from(seen.values()).sort((a, b) => a.symbol.localeCompare(b.symbol)));
+      }
+      setPosByClient(pbLatest);
     })();
   }, []);
+
+  // precios EN VIVO (ticker público de Binance, cada 15 s) para el estado de
+  // las posiciones en las tarjetas
+  useEffect(() => {
+    const syms = Array.from(new Set(Array.from(posByClient.values()).flat().map((p) => p.symbol)));
+    if (!syms.length) return;
+    let alive = true;
+    const load = async () => {
+      const out: Record<string, number> = {};
+      await Promise.all(syms.map(async (sym) => {
+        try {
+          const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${sym}`);
+          if (r.ok) { const j = await r.json(); const v = +j.price; if (v > 0) out[sym] = v; }
+        } catch { /* sin red: se mantiene el precio de la vela */ }
+      }));
+      if (alive && Object.keys(out).length) setLivePx((prev) => ({ ...prev, ...out }));
+    };
+    load();
+    const id = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(id); };
+    // eslint-disable-next-line
+  }, [posByClient]);
 
   if (isAdmin === null) return <div className="muted">Cargando…</div>;
   if (!isAdmin) return <div className="card"><p className="note">No tienes permisos de administrador.</p></div>;
@@ -163,6 +210,38 @@ export default function Admin() {
               </div>
 
               <Sparkline points={spark} color={sparkColor} />
+
+              {(() => {
+                const poss = posByClient.get(c.id) ?? [];
+                if (!poss.length) return null;
+                // TOTAL en vivo de las posiciones abiertas: uPnL sumado
+                const upnlTot = poss.reduce((a, p) => {
+                  const px = livePx[p.symbol] ?? p.price;
+                  return a + (p.entry_price ? p.pos_amt * (px - p.entry_price) : 0);
+                }, 0);
+                return (
+                  <div title="Posiciones abiertas: uPnL total y % frente a la entrada por activo, con precio en vivo (15 s)">
+                    <div style={{ fontSize: 13, marginBottom: 4 }}>
+                      <span className="muted">Posiciones ahora: </span>
+                      <b className={pnlClass(upnlTot)}>{upnlTot >= 0 ? "+$" : "−$"}{fmtUsd(Math.abs(upnlTot))}</b>
+                      <span className="muted"> en vivo</span>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 12 }}>
+                      {poss.map((p) => {
+                        const px = livePx[p.symbol] ?? p.price;
+                        const pct = p.entry_price ? (px / p.entry_price - 1) * 100 * Math.sign(p.pos_amt) : null;
+                        return (
+                          <span key={p.symbol} style={{ whiteSpace: "nowrap" }}>
+                            <span className="muted">{p.symbol.replace("USDT", "")}</span>
+                            <span className={p.pos_amt > 0 ? "pos" : "neg"}> {p.pos_amt > 0 ? "▲" : "▼"} </span>
+                            <b className={pnlClass(pct)}>{fmtPct(pct, 1)}</b>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="mini-metrics">
                 <div className="mm"><div className={`v ${pnlClass(realizado)}`}>{realizado == null ? "—" : `$${fmtUsd(realizado, 0)}`}</div><div className="l">Realizado</div></div>
