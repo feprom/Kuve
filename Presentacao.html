@@ -964,7 +964,8 @@ function drawChart(svg, dates, series, opts){
   const MOB = window.innerWidth<=900;
   const W = MOB ? 520 : 1100;
   let H = MOB ? Math.max(330, parseFloat(svg.dataset.vbh)*1.3) : parseFloat(svg.dataset.vbh);
-  if (MOB && svg.id==='simChart') H = Math.round(H*1.3); /* simulador: +30% vertical en móvil */
+  if (MOB && svg.id==='histChart') H = Math.round(H*1.3); /* curva histórica: +30% vertical en móvil */
+  if (MOB && svg.id==='simChart') H = Math.round(H*1.69); /* simulador: +30% adicional en móvil */
   svg.setAttribute('viewBox','0 0 '+W+' '+H);
   const FS = MOB ? 14.5 : 11;
   const padL=Math.round((opts.padL||62)*(MOB?0.9:1)), padR=MOB?10:16, padT=14, padB=MOB?46:40, pw=W-padL-padR, ph=H-padT-padB;
