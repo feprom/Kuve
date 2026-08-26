@@ -16,11 +16,16 @@ export type Attribution = {
   heredado: number;     // cierres de posiciones previas al bot (excluido)
   heredadoFills: { ts: string; usd: number }[]; // detalle para ajustar la curva de equity
   comisiones: number;
+  comisionFills: { ts: string; usd: number }[]; // detalle para desgloses mensuales
   funding: number;
-  transfers: number;
+  fundingFills: { ts: string; usd: number }[];
+  transfers: number;    // informativo — la fuente unica de flujos es detectarFlujos (lib/metrics)
   realizadoNeto: number; // mercado + comisiones + funding
   hasta: string | null;  // último fill sincronizado
 };
+
+/** Predicado compartido: un trade sin profit reportado es una apertura. */
+export const esApertura = (t: BotTradeLike) => !t.profit;
 
 export function attributeIncome(
   rows: IncomeRow[],
@@ -32,7 +37,7 @@ export function attributeIncome(
   // Las órdenes son la fuente robusta — el trade puede faltar si el reporte de
   // fills falló (visto con SOL de Roberto, 2026-07-12), la orden nunca falta.
   const opens = [
-    ...botTrades.filter((t) => !t.profit).map((t) => ({ symbol: t.symbol, ts: t.ts })),
+    ...botTrades.filter(esApertura).map((t) => ({ symbol: t.symbol, ts: t.ts })),
     ...botOrders.filter((o) => !o.reduce_only).map((o) => ({ symbol: o.symbol, ts: o.ts })),
   ];
   const activity = [
@@ -47,18 +52,25 @@ export function attributeIncome(
       Math.abs(new Date(x.ts).getTime() - new Date(ts).getTime()) <= winMs);
   let mercado = 0, heredado = 0, comisiones = 0, funding = 0, transfers = 0;
   const heredadoFills: { ts: string; usd: number }[] = [];
+  const comisionFills: { ts: string; usd: number }[] = [];
+  const fundingFills: { ts: string; usd: number }[] = [];
   for (const x of rows) {
     const v = Number(x.income || 0);
     if (x.income_type === "REALIZED_PNL") {
       if (opensBefore(x.symbol, x.ts, 120e3)) mercado += v;
       else { heredado += v; heredadoFills.push({ ts: x.ts, usd: v }); }
     } else if (x.income_type === "COMMISSION") {
-      if (nearTrade(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts, 120e3)) comisiones += v;
-    } else if (x.income_type === "FUNDING_FEE") funding += v;
-    else if (x.income_type === "TRANSFER") transfers += v;
+      if (nearTrade(x.symbol, x.ts, 300e3) || opensBefore(x.symbol, x.ts, 120e3)) {
+        comisiones += v;
+        comisionFills.push({ ts: x.ts, usd: v });
+      }
+    } else if (x.income_type === "FUNDING_FEE") {
+      funding += v;
+      fundingFills.push({ ts: x.ts, usd: v });
+    } else if (x.income_type === "TRANSFER") transfers += v;
   }
   return {
-    mercado, heredado, heredadoFills, comisiones, funding, transfers,
+    mercado, heredado, heredadoFills, comisiones, comisionFills, funding, fundingFills, transfers,
     realizadoNeto: mercado + comisiones + funding,
     hasta: rows.map((x) => x.ts).sort().slice(-1)[0] ?? null,
   };

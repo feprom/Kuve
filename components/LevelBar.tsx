@@ -1,4 +1,5 @@
 "use client";
+import { useId } from "react";
 
 /** Slider de una posición abierta: dónde está el precio entre el nivel de
  *  salida por stop (izquierda, rojo, con su valor) y el mejor precio alcanzado
@@ -12,21 +13,24 @@ const fmtN = (v: number) =>
 export default function LevelBar({ sl, best, price, entry, breached = false }: {
   sl: number; best: number; price: number; entry: number; breached?: boolean;
 }) {
+  // useId: un id constante se duplicaba por cada fila de la tabla
+  const gid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const span = best - sl;
   const frac = (v: number) => (span !== 0 ? Math.min(1, Math.max(0, (v - sl) / span)) : 0.5);
   const W = 170, H = 30, r = 4.5, barY = 8;
   const xPrice = 6 + frac(price) * (W - 12);
   const xEntry = 6 + frac(entry) * (W - 12);
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", marginLeft: "auto" }}>
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", marginLeft: "auto" }}
+      role="img" aria-label={`Stop ${fmtN(sl)}, mejor precio ${fmtN(best)}, entrada ${fmtN(entry)}, precio actual ${fmtN(price)}`}>
       <defs>
-        <linearGradient id="lb" x1="0" y1="0" x2="1" y2="0">
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="var(--red)" stopOpacity=".85" />
           <stop offset="50%" stopColor="var(--border)" />
           <stop offset="100%" stopColor="var(--green)" stopOpacity=".85" />
         </linearGradient>
       </defs>
-      <rect x="4" y={barY - 2} width={W - 8} height="4" rx="2" fill="url(#lb)" />
+      <rect x="4" y={barY - 2} width={W - 8} height="4" rx="2" fill={`url(#${gid})`} />
       {/* entrada */}
       <line x1={xEntry} y1="1" x2={xEntry} y2={barY + 6} stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="2 2" />
       {/* precio actual */}

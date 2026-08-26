@@ -5,6 +5,14 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import AssetName from "@/components/AssetName";
 import AccountView from "@/components/AccountView";
+import { attributeIncome, IncomeRow } from "@/lib/pnl";
+import {
+  detectarFlujos, curvaTwr, seriePnl, twrEntre, pnlEntre, maxDrawdownEntre,
+  sanearSnaps, SnapLike,
+} from "@/lib/metrics";
+import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled } from "@/lib/queries";
+import { fmtMesUtc } from "@/lib/format";
+import { eventLabel } from "@/lib/events";
 
 /**
  * Detalle de un cliente para el ADMIN: cabecera con controles (perfil, pausar)
@@ -41,8 +49,11 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersFilled, setOrdersFilled] = useState<{ symbol: string | null; ts: string; reduce_only: boolean | null }[]>([]);
   const [events, setEvents] = useState<Evt[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [snaps, setSnaps] = useState<SnapLike[]>([]);
+  const [ledger, setLedger] = useState<IncomeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<Tab>("cuenta");
@@ -58,20 +69,29 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
     if (!adm?.length) { setIsAdmin(false); setLoading(false); return; }
     setIsAdmin(true);
 
-    const [c, p, t, o, e, r] = await Promise.all([
+    const [c, p, t, o, e, r, s, inc, oFill] = await Promise.all([
       sb.from("clients").select("*, risk_profiles(name, atr_mult)").eq("id", id).single(),
       sb.from("risk_profiles").select("id, name").order("id"),
-      sb.from("trades").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(300),
+      // MISMOS límites que AccountView/performance: con ventanas distintas los
+      // heredadoFills divergen y los cortes no cuadran con la pestaña Cuenta
+      fetchTrades(sb, id).then((data) => ({ data })),
       sb.from("orders").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(300),
       sb.from("events").select("*").eq("client_id", id).order("ts", { ascending: false }).limit(150),
       sb.from("client_monthly_reports").select("*").eq("client_id", id).order("period_start", { ascending: false }),
+      // snapshots + ledger COMPLETOS y paginados: los cortes se RECALCULAN acá
+      fetchSnaps(sb, id).then((data) => ({ data })),
+      fetchIncome(sb, id).then((data) => ({ data })),
+      fetchOrdersFilled(sb, id).then((data) => ({ data })),
     ]);
     setClient(c.data as any);
     setProfiles(p.data ?? []);
-    setTrades(t.data ?? []);
+    setTrades((t.data ?? []) as any[]);
     setOrders(o.data ?? []);
+    setOrdersFilled((oFill.data ?? []) as any[]);
     setEvents(e.data ?? []);
     setReports(r.data ?? []);
+    setSnaps(sanearSnaps((s.data ?? []) as SnapLike[]));
+    setLedger((inc.data ?? []) as IncomeRow[]);
     setLoading(false);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
@@ -116,11 +136,35 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
     const a = document.createElement("a");
     a.href = url;
     a.download = `kuve_${(client?.name || id).replace(/\s+/g, "_")}_${histTab}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
   }
 
   const cutoff = nextCutoff();
+
+  // ---- CORTES MENSUALES, recalculados ----
+  // El bot guarda `pnl_pct` como end_equity/start_equity − 1, que es falso en
+  // cuanto hay un depósito (julio de Roberto: guardado +46,63%, real −4%). Acá
+  // se recalcula con lib/metrics.ts a partir de los snapshots del mes; el valor
+  // guardado queda solo en el tooltip hasta que se corrija el corte en el bot.
+  const flujosCli = detectarFlujos(snaps, ledger);
+  const heredadoCli = attributeIncome(
+    ledger.filter((x) => snaps.length && new Date(x.ts).getTime() >= new Date(snaps[0].ts).getTime()),
+    trades, ordersFilled,
+  )?.heredadoFills ?? [];
+  const curvaCli = curvaTwr(snaps, flujosCli, heredadoCli);
+  const serieCli = seriePnl(snaps, flujosCli, heredadoCli);
+  const corte = (r: Report) => {
+    const d0 = Date.parse(r.period_start + "T00:00:00Z");
+    const d1 = Date.parse(r.period_end + "T00:00:00Z") - 1;
+    if (!curvaCli.length) return null;
+    const pct = twrEntre(curvaCli, d0, d1);
+    if (pct == null) return null;
+    // drawdown del mes con el pico SEMBRADO en el valor vigente al inicio: una
+    // caída que arranca en las últimas horas del mes anterior también cuenta
+    return { pct, abs: pnlEntre(serieCli, d0, d1), dd: maxDrawdownEntre(curvaCli, d0, d1) };
+  };
 
   return (
     <>
@@ -144,7 +188,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
 
         <div className="muted" style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12, fontSize: 12.5 }}>
           <span>Ingreso: {new Date(client.created_at).toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })}</span>
-          <span>Próximo corte: {cutoff.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })} 00:00 UTC</span>
+          <span>Próximo corte: {cutoff.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" })} 00:00 UTC</span>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, alignItems: "flex-end" }}>
@@ -165,11 +209,11 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
         </div>
       </div>
 
-      <div className="tabs">
-        <div className={`tab ${tab === "cuenta" ? "active" : ""}`} onClick={() => setTab("cuenta")}>Cuenta</div>
-        <div className={`tab ${tab === "historial" ? "active" : ""}`} onClick={() => setTab("historial")}>Historial</div>
-        <div className={`tab ${tab === "eventos" ? "active" : ""}`} onClick={() => setTab("eventos")}>Eventos</div>
-        <div className={`tab ${tab === "cortes" ? "active" : ""}`} onClick={() => setTab("cortes")}>Cortes</div>
+      <div className="tabs" role="tablist" aria-label="Secciones del cliente">
+        {([["cuenta", "Cuenta"], ["historial", "Historial"], ["eventos", "Eventos"], ["cortes", "Cortes"]] as const).map(([k, lbl]) => (
+          <button key={k} role="tab" aria-selected={tab === k}
+            className={`tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>{lbl}</button>
+        ))}
       </div>
 
       {/* La MISMA vista que ve el cliente en su dashboard, con sus datos. */}
@@ -177,9 +221,11 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
 
       {tab === "historial" && (
         <>
-          <div className="tabs">
-            <div className={`tab ${histTab === "trades" ? "active" : ""}`} onClick={() => setHistTab("trades")}>Trades</div>
-            <div className={`tab ${histTab === "orders" ? "active" : ""}`} onClick={() => setHistTab("orders")}>Órdenes</div>
+          <div className="tabs" role="tablist" aria-label="Historial del cliente">
+            {([["trades", "Trades"], ["orders", "Órdenes"]] as const).map(([k, lbl]) => (
+              <button key={k} role="tab" aria-selected={histTab === k}
+                className={`tab ${histTab === k ? "active" : ""}`} onClick={() => setHistTab(k)}>{lbl}</button>
+            ))}
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <select value={fSymbol} onChange={(e) => setFSymbol(e.target.value)}>
@@ -198,7 +244,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
             <div className="card">
               <h2>Trades ejecutados</h2>
               {ftrades.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin operaciones con esos filtros</div> : (
-                <div style={{ overflowX: "auto" }}>
+                <div className="table-scroll">
                   <table>
                     <thead><tr><th>Fecha</th><th>Activo</th><th>Op.</th><th>Profit</th><th>Acum.</th></tr></thead>
                     <tbody>
@@ -222,7 +268,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
             <div className="card">
               <h2>Órdenes enviadas</h2>
               {forders.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin órdenes con esos filtros</div> : (
-                <div style={{ overflowX: "auto" }}>
+                <div className="table-scroll">
                   <table>
                     <thead><tr><th>Fecha</th><th>Activo</th><th>Lado</th><th>Qty</th><th>Estado</th><th style={{ textAlign: "left" }}>Error</th></tr></thead>
                     <tbody>
@@ -249,7 +295,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
         <div className="card">
           <h2>Eventos ({events.length})</h2>
           {events.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin eventos</div> : (
-            <div style={{ overflowX: "auto" }}>
+            <div className="table-scroll">
               <table>
                 <thead><tr><th>Fecha</th><th>Evento</th><th style={{ textAlign: "left" }}>Detalle</th></tr></thead>
                 <tbody>
@@ -259,7 +305,7 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
                     return (
                       <tr key={e.id}>
                         <td>{fmtDate(e.ts)}</td>
-                        <td className={e.level === "error" ? "neg" : e.level === "warn" ? "" : "muted"}>{e.kind}</td>
+                        <td className={e.level === "error" ? "neg" : e.level === "warn" ? "" : "muted"}>{eventLabel(e)}</td>
                         <td className="muted" style={{ textAlign: "left" }}>{String(det).slice(0, 200)}</td>
                       </tr>
                     );
@@ -275,24 +321,38 @@ export default function AdminClientDetail({ params }: { params: { id: string } }
         <div className="card">
           <h2>Cortes mensuales</h2>
           {reports.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Aún no hay cortes generados</div> : (
-            <div style={{ overflowX: "auto" }}>
+            <div className="table-scroll">
               <table>
-                <thead><tr><th>Mes</th><th>Equity inicial</th><th>Equity final</th><th>PnL $</th><th>PnL %</th><th>Realizado</th><th>Trades</th><th>Máx. DD</th></tr></thead>
+                <thead><tr><th>Mes</th><th>Equity inicial</th><th>Equity final</th><th>PnL $</th><th>Rendimiento</th><th>Realizado</th><th>Trades</th><th>Máx. DD</th></tr></thead>
                 <tbody>
-                  {reports.map((r) => (
-                    <tr key={r.period_start}>
-                      <td>{new Date(r.period_start + "T00:00:00Z").toLocaleDateString("es-ES", { month: "long", year: "numeric" })}</td>
-                      <td>${fmtUsd(r.start_equity, 0)}</td>
-                      <td>${fmtUsd(r.end_equity, 0)}</td>
-                      <td className={pnlClass(r.pnl_abs)}>{fmtUsd(r.pnl_abs)}</td>
-                      <td className={pnlClass(r.pnl_pct)}>{fmtPct(r.pnl_pct)}</td>
-                      <td className={pnlClass(r.realized)}>{fmtUsd(r.realized)}</td>
-                      <td>{r.n_trades}</td>
-                      <td className="neg">{fmtPct(r.max_dd_pct, 1)}</td>
-                    </tr>
-                  ))}
+                  {reports.map((r) => {
+                    const k = corte(r);
+                    const abs = k?.abs ?? r.pnl_abs;
+                    const pct = k?.pct ?? r.pnl_pct;
+                    const dd = k?.dd ?? (r.max_dd_pct == null ? null : -Math.abs(r.max_dd_pct));
+                    const dif = k && Math.abs(k.pct - r.pnl_pct) > 0.05;
+                    return (
+                      <tr key={r.period_start}>
+                        <td>{fmtMesUtc(r.period_start)}</td>
+                        <td>${fmtUsd(r.start_equity, 0)}</td>
+                        <td>${fmtUsd(r.end_equity, 0)}</td>
+                        <td className={pnlClass(abs)}>{fmtUsd(abs)}</td>
+                        <td className={pnlClass(pct)}
+                          title={dif ? `El corte guardado por el bot dice ${fmtPct(r.pnl_pct)} — está calculado como equity_final/equity_inicial y no descuenta los movimientos de capital del mes. Este valor es el time-weighted, recalculado desde los snapshots.` : undefined}>
+                          {fmtPct(pct)}{dif && <span className="muted" style={{ marginLeft: 4 }}>*</span>}
+                        </td>
+                        <td className={pnlClass(r.realized)}>{fmtUsd(r.realized)}</td>
+                        <td>{r.n_trades}</td>
+                        <td className="neg">{dd == null ? "—" : fmtPct(dd, 1)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+              <p className="note">Rendimiento y PnL <b>recalculados</b> desde los snapshots con el TWR de <code>lib/metrics.ts</code>:
+                neutralizan depósitos y retiros del mes. Un asterisco marca las filas donde el corte guardado por el bot
+                difiere — ese corte se genera con el retorno ingenuo y hay que corregirlo también en
+                <code> client_monthly_reports</code> (pendiente del lado del bot).</p>
             </div>
           )}
         </div>

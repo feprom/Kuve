@@ -12,7 +12,8 @@ export default function Donut({ slices }: { slices: Slice[] }) {
   let acc = 0;
   return (
     <div className="compbody">
-      <svg width="140" height="140" viewBox="0 0 140 140">
+      <svg width="140" height="140" viewBox="0 0 140 140" style={{ flexShrink: 0 }}
+        role="img" aria-label={`Composición de la exposición: ${slices.map((s) => `${s.label.replace("USDT", "")} ${((s.value / total) * 100).toFixed(0)}%`).join(", ")}`}>
         {slices.map((s, i) => {
           const frac = s.value / total;
           const dash = `${frac * C} ${C}`;

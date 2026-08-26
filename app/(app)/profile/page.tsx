@@ -8,7 +8,9 @@ type Profile = { id: number; name: string; description: string; vol_target: numb
 
 export default function ProfilePage() {
   const router = useRouter();
-  const sb = supabaseBrowser();
+  // supabaseBrowser() se llama DENTRO de cada handler: crearlo en el cuerpo
+  // del componente rompe el prerender del build (sin env vars). Es singleton.
+  const sb = () => supabaseBrowser();
   const [client, setClient] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [creds, setCreds] = useState<any>(null);
@@ -20,31 +22,37 @@ export default function ProfilePage() {
   const [apiKey, setApiKey] = useState("");
   const [apiSecret, setApiSecret] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [telegram, setTelegram] = useState("");
 
   async function load() {
-    const { data: { user } } = await sb.auth.getUser();
+    const { data: { user } } = await sb().auth.getUser();
     if (!user) return;
-    const { data: adm } = await sb.from("admin_users").select("auth_uid").eq("auth_uid", user.id);
+    const { data: adm } = await sb().from("admin_users").select("auth_uid").eq("auth_uid", user.id);
     setIsAdmin(!!adm?.length);
-    const { data: c } = await sb.from("clients").select("*").eq("auth_uid", user.id).single();
+    // maybeSingle: con 0 filas .single() devuelve error y la página quedaba en
+    // "Cargando…" para siempre, sin acceso ni al botón de cerrar sesión
+    const { data: c } = await sb().from("clients").select("*").eq("auth_uid", user.id).maybeSingle();
     setClient(c); setName(c?.name ?? "");
-    const { data: p } = await sb.from("risk_profiles").select("*").order("id");
+    setTelegram(c?.telegram_handle ?? "");
+    const { data: p } = await sb().from("risk_profiles").select("*").order("id");
     setProfiles(p ?? []);
     // key metadata is not directly readable (no RLS policy) — key_status lives on clients
     setCreds(c?.key_status === "valid" ? { status: "valid" } : null);
+    setLoaded(true);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
   async function rpcSettings(fields: Record<string, unknown>) {
     setBusy(true); setMsg({});
-    const { error } = await sb.rpc("update_client_settings", fields);
+    const { error } = await sb().rpc("update_client_settings", fields);
     if (error) setMsg({ err: error.message });
     else { setMsg({ ok: "Guardado. Los cambios se aplican en la próxima vela." }); await load(); }
     setBusy(false);
   }
 
   async function callEdge(fn: string, body: unknown) {
-    const { data: { session } } = await sb.auth.getSession();
+    const { data: { session } } = await sb().auth.getSession();
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/${fn}`,
       {
@@ -56,28 +64,60 @@ export default function ProfilePage() {
         },
         body: JSON.stringify(body),
       });
+    // sin este check, un 502 con HTML rompía el .json(), la promesa quedaba sin
+    // capturar y el formulario se bloqueaba en "Validando…" sin mensaje
+    if (!res.ok) {
+      let detail = `${res.status}`;
+      try { detail = (await res.json()).error ?? detail; } catch { /* no era JSON */ }
+      return { error: `El servidor respondió con un error (${detail}). Probá de nuevo en unos minutos.` };
+    }
     return res.json();
   }
 
   async function saveKeys(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setMsg({});
-    const r = await callEdge("store-binance-keys", { api_key: apiKey, api_secret: apiSecret });
-    if (r.error) setMsg({ err: r.error });
-    else {
-      setMsg({ ok: `Claves guardadas (····${r.last4}) · red detectada: ${r.network === "real" ? "REAL (mainnet)" : "TESTNET"}${r.warning ? ` · ${r.warning}` : ""}` });
-      setApiKey(""); setApiSecret(""); setShowKeys(false);
-      await load();
+    try {
+      const r = await callEdge("store-binance-keys", { api_key: apiKey, api_secret: apiSecret });
+      if (r.error) setMsg({ err: r.error });
+      else {
+        setMsg({ ok: `Claves guardadas (····${r.last4}) · red detectada: ${r.network === "real" ? "REAL (mainnet)" : "TESTNET"}${r.warning ? ` · ${r.warning}` : ""}` });
+        setApiKey(""); setApiSecret(""); setShowKeys(false);
+        await load();
+      }
+    } catch (err) {
+      setMsg({ err: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function deleteKeys() {
     if (!confirm("¿Eliminar tus claves de Binance? El bot dejará de operar tu cuenta.")) return;
     setBusy(true);
-    const r = await callEdge("delete-binance-keys", {});
-    setMsg(r.error ? { err: r.error } : { ok: "Claves eliminadas." });
-    await load(); setBusy(false);
+    try {
+      const r = await callEdge("delete-binance-keys", {});
+      setMsg(r.error ? { err: r.error } : { ok: "Claves eliminadas." });
+      await load();
+    } catch (err) {
+      setMsg({ err: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTelegram(e: React.FormEvent) {
+    e.preventDefault();
+    const limpio = telegram.trim().replace(/^@/, "");
+    if (limpio && !/^[A-Za-z0-9_]{5,32}$/.test(limpio)) {
+      setMsg({ err: "Usuario de Telegram inválido: 5–32 caracteres, letras, números o guion bajo (sin @)." });
+      return;
+    }
+    setBusy(true); setMsg({});
+    const { error } = await sb().rpc("update_client_telegram", { p_telegram: limpio || null });
+    if (error) setMsg({ err: error.message });
+    else { setMsg({ ok: limpio ? `Contacto de Telegram guardado: @${limpio}.` : "Contacto de Telegram eliminado." }); await load(); }
+    setBusy(false);
   }
 
   async function toggleEnabled() {
@@ -91,11 +131,19 @@ export default function ProfilePage() {
   }
 
   async function logout() {
-    await sb.auth.signOut();
+    await sb().auth.signOut();
     router.push("/login"); router.refresh();
   }
 
-  if (!client) return <div className="muted">Cargando…</div>;
+  if (!loaded) return <div className="muted">Cargando…</div>;
+  if (!client) return (
+    <>
+      <div className="card"><h2>Tu cuenta aún no está vinculada</h2>
+        <p className="note">Tu usuario existe pero no tiene una cuenta de cliente asociada. Escribinos para completar el alta.</p>
+      </div>
+      <button className="btn secondary" onClick={logout}>Cerrar sesión</button>
+    </>
+  );
   const selProfile = profiles.find((p) => p.id === client.risk_profile_id);
 
   return (
@@ -135,6 +183,28 @@ export default function ProfilePage() {
           <p className="note">{selProfile.description} Equity mínimo recomendado: ${selProfile.min_equity_usdt}.
             Un cambio de perfil se aplica en la próxima vela horaria.</p>
         )}
+      </div>
+
+      <div className="card">
+        <h2>Avisos por Telegram</h2>
+        {client.telegram_handle ? (
+          <p className="note">Contacto configurado: <b>@{client.telegram_handle}</b>{" "}
+            <span className="badge on" style={{ marginLeft: 6 }}>CONECTADO</span><br />
+            Te llegan las novedades de tu cuenta (aperturas, cierres e incidencias) por Telegram.
+            Asegurate de haber iniciado conversación con el bot de avisos de Kuve para poder recibirlas.</p>
+        ) : (
+          <p className="note">Dejanos tu usuario de Telegram y te mandamos las novedades de tu cuenta:
+            aperturas y cierres de posiciones, e incidencias que requieran tu atención.</p>
+        )}
+        <form onSubmit={saveTelegram} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <label className="field" style={{ marginBottom: 0, minWidth: 200, flex: "1 1 200px" }}>Usuario de Telegram
+            <input value={telegram} onChange={(e) => setTelegram(e.target.value)}
+              placeholder="@tu_usuario" autoComplete="off" inputMode="text" />
+          </label>
+          <button className="btn secondary" disabled={busy || telegram.trim().replace(/^@/, "") === (client.telegram_handle ?? "")}>
+            Guardar
+          </button>
+        </form>
       </div>
 
       <div className="card">
@@ -206,9 +276,11 @@ export default function ProfilePage() {
       <button className="btn secondary" onClick={logout}>Cerrar sesión</button>
 
       {showDisable && (
-        <div className="modal-back" onClick={() => setShowDisable(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>¿Qué hacemos con tus posiciones abiertas?</h3>
+        <div className="modal-back" onClick={() => setShowDisable(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") setShowDisable(false); }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="disable-title"
+            onClick={(e) => e.stopPropagation()}>
+            <h3 id="disable-title">¿Qué hacemos con tus posiciones abiertas?</h3>
             <p><b>Cerrar ahora:</b> el bot cierra todas tus posiciones a mercado en el próximo ciclo y se detiene.</p>
             <p><b>Dejar terminar:</b> no abre posiciones nuevas, pero gestiona las abiertas con sus stops hasta que salgan solas. Sigues expuesto mientras tanto.</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>

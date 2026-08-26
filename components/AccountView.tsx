@@ -9,12 +9,16 @@
  * comisiones, funding, heredado, exposición, margen, apalancamiento, trades).
  *
  * Consistencia: el PnL total (bot), la curva azul del gráfico y el drawdown
- * salen TODOS de la misma serie: equity(t) − capital inicial − cierres
- * heredados (posiciones previas al bot) acumulados hasta t. Por eso el número
- * grande, el gráfico y el drawdown siempre cuadran entre sí y llegan a la
- * última vela.
+ * salen TODOS de la misma serie: equity(t) − capital aportado hasta t − cierres
+ * heredados (posiciones previas al bot). Por eso el número grande, el gráfico y
+ * el drawdown siempre cuadran entre sí y llegan a la última vela.
+ *
+ * Ningún número se calcula acá: todo sale de lib/metrics.ts, que es el único
+ * lugar donde vive cada fórmula. El porcentaje es TIME-WEIGHTED — neutraliza
+ * depósitos y retiros. Con el retorno ingenuo, un depósito se mostraba como
+ * ganancia (Roberto: +45,65% falso contra −5,2% real).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Donut from "@/components/Donut";
@@ -22,8 +26,15 @@ import TriggerGauge from "@/components/TriggerGauge";
 import LevelBar from "@/components/LevelBar";
 import AssetName from "@/components/AssetName";
 import PerfChart from "@/components/PerfChart";
+import EventFeed from "@/components/EventFeed";
 import { computeLevels, Levels, STRATEGY_PARAMS } from "@/lib/levels";
-import { attributeIncome, Attribution } from "@/lib/pnl";
+import { attributeIncome, Attribution, IncomeRow, esApertura } from "@/lib/pnl";
+import {
+  detectarFlujos, seriePnl, curvaTwr, maxDrawdown, serieBenchmark, sanearSnaps,
+  factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf,
+} from "@/lib/metrics";
+import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchEvents } from "@/lib/queries";
+import type { EventRow } from "@/lib/events";
 
 type Snap = {
   ts: string; bar_time: string; equity: number; wallet_balance: number; unrealized_pnl: number;
@@ -33,9 +44,6 @@ type Snap = {
 type Pos = { id: number; symbol: string; side: string; pos_amt: number; price: number; entry_price: number; unrealized_pnl: number };
 type Trade = { id: number; ts: string; symbol: string; side: string; profit: number };
 type Signal = { symbol: string; side: number; price: number; long_trigger: number; short_trigger: number; bar_time: string; created_at: string };
-
-const variantOf = (atr: number | null | undefined) =>
-  atr == null ? "default" : `atr${Number.isInteger(Number(atr)) ? parseInt(String(atr)) : atr}`;
 
 function dedupeBySymbol(rows: Pos[]): Pos[] {
   const seen = new Map<string, Pos>();
@@ -52,50 +60,63 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const [signals, setSignals] = useState<Signal[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [income, setIncome] = useState<Attribution | null>(null);
+  const [ledger, setLedger] = useState<IncomeRow[]>([]);   // crudo: incluye TRANSFER
   const [levels, setLevels] = useState<Record<string, Levels | null>>({});
   const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
   const [rango, setRango] = useState<"3m" | "ytd" | "entrada">("3m");
   const [live, setLive] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [eventos, setEventos] = useState<EventRow[]>([]);
   const tuyo = esAdmin ? "del cliente" : "tuyo";
 
   useEffect(() => {
     if (!client?.id) return;
     let alive = true;
     (async () => {
-      const sb = supabaseBrowser();
-      const variant = variantOf(client?.risk_profiles?.atr_mult);
-      const { data: s } = await sb.from("account_snapshots").select("*")
-        .eq("client_id", client.id).order("ts", { ascending: true }).limit(6000);
-      const snapRows = (s ?? []) as Snap[];
-      const latest = snapRows[snapRows.length - 1];
-      const [b, sig, t, p, inc, ord] = await Promise.all([
-        client.risk_profile_id
-          ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", client.risk_profile_id).order("date", { ascending: true })
-          : Promise.resolve({ data: [] as any[] }),
-        sb.from("strategy_signals").select("*").eq("variant", variant).order("bar_time", { ascending: false }).limit(8),
-        sb.from("trades").select("id, ts, symbol, side, profit").eq("client_id", client.id).order("ts", { ascending: false }).limit(300),
-        latest?.bar_time
-          ? sb.from("positions").select("*").eq("client_id", client.id).eq("bar_time", latest.bar_time)
-          : Promise.resolve({ data: [] as any[] }),
-        snapRows[0]?.ts
-          ? sb.from("account_income").select("income_type, income, ts, symbol").eq("client_id", client.id).gte("ts", snapRows[0].ts).limit(5000)
-          : Promise.resolve({ data: [] as any[] }),
-        sb.from("orders").select("symbol, ts, reduce_only").eq("client_id", client.id)
-          .eq("status", "filled").order("ts", { ascending: false }).limit(1000),
-      ]);
-      if (!alive) return;
-      setSnaps(snapRows);
-      setBench((b as any).data ?? []);
-      setSignals(((sig as any).data ?? []) as Signal[]);
-      setTrades(((t as any).data ?? []) as Trade[]);
-      // IMPORTANTE: deduplicar PRIMERO (gana la fila más nueva por id) y recién
-      // después filtrar los ceros. Si se filtra antes, una fila vieja "abierta"
-      // le gana a la fila nueva que registró el cierre (pos_amt=0) cuando el
-      // bot reprocesa la misma vela tras un reinicio.
-      setPositions(dedupeBySymbol((((p as any).data ?? []) as Pos[])).filter((r) => r.pos_amt !== 0));
-      setIncome(attributeIncome(((inc as any).data ?? []), ((t as any).data ?? []), ((ord as any).data ?? [])));
-      setLoading(false);
+      try {
+        const sb = supabaseBrowser();
+        const variant = variantOf(client?.risk_profiles?.atr_mult);
+        // carga paginada COMPLETA: sin esto PostgREST corta en max-rows y la
+        // serie pierde su inception en silencio (el TWR arrancaría tarde)
+        const snapRows = sanearSnaps((await fetchSnaps(sb, client.id)) as unknown as Snap[]);
+        const latest = snapRows[snapRows.length - 1];
+        const [b, sig, t, p, inc, ord, ev] = await Promise.all([
+          client.risk_profile_id
+            ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", client.risk_profile_id).order("date", { ascending: true })
+            : Promise.resolve({ data: [] as any[] }),
+          // 40 filas ≈ varias barras: la última barra completa se arma por símbolo
+          sb.from("strategy_signals").select("*").eq("variant", variant).order("bar_time", { ascending: false }).limit(40),
+          fetchTrades(sb, client.id).then((data) => ({ data })),
+          latest?.bar_time
+            ? sb.from("positions").select("*").eq("client_id", client.id).eq("bar_time", latest.bar_time)
+            : Promise.resolve({ data: [] as any[] }),
+          snapRows[0]?.ts
+            ? fetchIncome(sb, client.id, snapRows[0].ts).then((data) => ({ data }))
+            : Promise.resolve({ data: [] as any[] }),
+          fetchOrdersFilled(sb, client.id).then((data) => ({ data })),
+          fetchEvents(sb, client.id, 60),
+        ]);
+        if (!alive) return;
+        setSnaps(snapRows);
+        setBench((b as any).data ?? []);
+        setSignals(((sig as any).data ?? []) as Signal[]);
+        setTrades(((t as any).data ?? []) as Trade[]);
+        // IMPORTANTE: deduplicar PRIMERO (gana la fila más nueva por id) y recién
+        // después filtrar los ceros. Si se filtra antes, una fila vieja "abierta"
+        // le gana a la fila nueva que registró el cierre (pos_amt=0) cuando el
+        // bot reprocesa la misma vela tras un reinicio.
+        setPositions(dedupeBySymbol((((p as any).data ?? []) as Pos[])).filter((r) => r.pos_amt !== 0));
+        const incRows = (((inc as any).data ?? []) as IncomeRow[]);
+        setLedger(incRows);
+        setIncome(attributeIncome(incRows, ((t as any).data ?? []), ((ord as any).data ?? [])));
+        setEventos(((ev as any).data ?? []) as EventRow[]);
+        setErr(null);
+      } catch (e) {
+        if (alive) setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (alive) setLoading(false);
+      }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line
@@ -127,14 +148,18 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   useEffect(() => {
     if (!positions.length) { setLive({}); return; }
     let alive = true;
+    const wanted = new Set(positions.map((p) => p.symbol));
     const load = async () => {
+      // UNA sola llamada para todos los símbolos (el ticker sin symbol devuelve
+      // todo el mercado): evita N peticiones cada 15 s y el rate-limit de Binance
       const out: Record<string, number> = {};
-      await Promise.all(positions.map(async (p) => {
-        try {
-          const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${p.symbol}`);
-          if (r.ok) { const j = await r.json(); const v = +j.price; if (v > 0) out[p.symbol] = v; }
-        } catch { /* sin red: la fila mantiene el precio de la vela */ }
-      }));
+      try {
+        const r = await fetch("https://fapi.binance.com/fapi/v1/ticker/price");
+        if (r.ok) {
+          const j = (await r.json()) as { symbol: string; price: string }[];
+          for (const x of j) if (wanted.has(x.symbol)) { const v = +x.price; if (v > 0) out[x.symbol] = v; }
+        }
+      } catch { /* sin red: la fila mantiene el precio de la vela */ }
       if (alive && Object.keys(out).length) setLive((prev) => ({ ...prev, ...out }));
     };
     load();
@@ -143,7 +168,22 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     // eslint-disable-next-line
   }, [positions]);
 
+  // ---- MÉTRICAS (todas de lib/metrics.ts), memoizadas: el tick de 15 s de los
+  // precios en vivo NO debe recalcular flujos/series sobre miles de barras ----
+  const met = useMemo(() => {
+    const flujos = detectarFlujos(snaps, ledger);
+    const heredadoFills = income?.heredadoFills ?? [];
+    const botSeries = seriePnl(snaps, flujos, heredadoFills);
+    const curva = curvaTwr(snaps, flujos, heredadoFills);
+    return { flujos, heredadoFills, botSeries, curva };
+  }, [snaps, ledger, income]);
+
   if (loading) return <div className="muted">Cargando…</div>;
+  if (err) return (
+    <div className="card"><h2>No se pudieron cargar los datos</h2>
+      <p className="note">Error: {err}. Reintentá recargando la página; si persiste, avisanos.</p>
+    </div>
+  );
 
   const snap = snaps[snaps.length - 1] ?? null;
   if (!snap) return (
@@ -152,25 +192,11 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     </div>
   );
 
-  // ---- serie del BOT: equity − inicial − heredado acumulado (una sola fuente
-  // de verdad para el número grande, la curva azul y el drawdown) ----
-  const hf = (income?.heredadoFills ?? []).map((h) => ({ t: new Date(h.ts).getTime(), usd: h.usd }))
-    .sort((a, b) => a.t - b.t);
-  const heredadoHasta = (t: number) => hf.reduce((a, h) => a + (h.t <= t ? h.usd : 0), 0);
-  const start = snap.start_equity || 0;
-  const botSeries = snaps.map((s) => {
-    const t = new Date(s.ts).getTime();
-    return { x: t, pnl: s.equity - start - heredadoHasta(t) };
-  });
+  // Movimientos de capital: el ledger de Binance (TRANSFER) manda; el salto de
+  // equity no explicado es la red de seguridad si el ledger viniera atrasado.
+  const { flujos, heredadoFills, botSeries, curva } = met;
+  const capitalHoy = botSeries[botSeries.length - 1]?.base ?? 0;
   const pnlAbs = botSeries.length ? botSeries[botSeries.length - 1].pnl : null;
-  const totalPct = start && pnlAbs != null ? (pnlAbs / start) * 100 : null;
-  let peak = -Infinity, ddBot = 0;
-  for (const p of botSeries) {
-    const eq = start + p.pnl;
-    peak = Math.max(peak, eq);
-    if (peak > 0) ddBot = Math.min(ddBot, (eq / peak - 1) * 100);
-  }
-  const cuentaAbs = start ? snap.equity - start : null;
 
   // ---- EN VIVO (15 s): un solo dato para métricas, tabla y composición ----
   const enVivo = Object.keys(live).length > 0;
@@ -178,17 +204,18 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const upnlLiveTot = positions.reduce((a, p) =>
     a + (p.entry_price ? p.pos_amt * (pxOf(p) - p.entry_price) : (p.unrealized_pnl ?? 0)), 0);
   const expLive = positions.reduce((a, p) => a + Math.abs(p.pos_amt * pxOf(p)), 0);
-  const adjVivo = enVivo ? upnlLiveTot - (snap.unrealized_pnl ?? 0) : 0;
+  // sin uPnL de vela no hay base para ajustar: mejor 0 que inflar el equity
+  const adjVivo = enVivo && snap.unrealized_pnl != null ? upnlLiveTot - snap.unrealized_pnl : 0;
   const equityShow = snap.equity + adjVivo;
   const pnlShow = pnlAbs == null ? null : pnlAbs + adjVivo;
-  const totalPctShow = start && pnlShow != null ? (pnlShow / start) * 100 : null;
+  const cuentaAbs = capitalHoy ? equityShow - capitalHoy : null;
   const upnlShow = enVivo ? upnlLiveTot : snap.unrealized_pnl;
-  // el drawdown máximo también considera el valor en vivo de este momento
-  if (pnlShow != null && start) {
-    const eqNow = start + pnlShow;
-    peak = Math.max(peak, eqNow);
-    if (peak > 0) ddBot = Math.min(ddBot, (eqNow / peak - 1) * 100);
-  }
+  // el tramo en vivo se encadena al índice vía lib/metrics: neutraliza un
+  // depósito/retiro ocurrido entre la última vela y ahora
+  const factorVivo = factorVivoDe(snaps, flujos, heredadoFills, enVivo ? equityShow : null);
+  const totalPctShow = factorVivo != null && curva.length > 1 ? (factorVivo - 1) * 100 : null;
+  // drawdown sobre la curva time-weighted: un depósito ya no infla el pico
+  const ddBot = maxDrawdown([...curva.map((p) => p.y), ...(factorVivo != null ? [factorVivo] : [])]);
 
   const leverage = equityShow ? expLive / equityShow : null;
   const freeUsdt = Math.max(0, equityShow - (snap.margin_used ?? 0));
@@ -198,11 +225,14 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     pnl: p.entry_price ? p.pos_amt * (pxOf(p) - p.entry_price) : p.unrealized_pnl,
   }));
   const openSyms = new Set(positions.map((p) => p.symbol));
-  const pending = signals.filter((s) => !openSyms.has(s.symbol)).sort((a, b) => a.symbol.localeCompare(b.symbol));
   // última señal del motor por símbolo (variante del perfil): fuente de verdad
-  // de lo que el bot hará con cada posición en la próxima vela
+  // de lo que el bot hará con cada posición en la próxima vela. Se arma ANTES
+  // de "pending" para que nunca haya dos filas del mismo símbolo aunque la
+  // consulta traiga varias barras.
   const sigBySym = new Map<string, Signal>();
   for (const s of signals) if (!sigBySym.has(s.symbol)) sigBySym.set(s.symbol, s);
+  const pending = Array.from(sigBySym.values())
+    .filter((s) => !openSyms.has(s.symbol)).sort((a, b) => a.symbol.localeCompare(b.symbol));
   const profName: string = client?.risk_profiles?.name ?? "";
 
   // ---- rendimiento: la ventana muestra mínimo 3 meses (o YTD, o desde la
@@ -212,45 +242,36 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   // refresca el punto de hoy en cada vela).
   const entryTs = snaps.length ? new Date(snaps[0].ts).getTime() : null;
   const now = Date.now();
-  const benchAll = bench.map((b, i) => {
-    let x = new Date(b.date + "T00:00:00Z").getTime();
-    // el último punto (hoy, parcial) se dibuja en la hora actual, no a las 00:00
-    if (i === bench.length - 1 && now - x > 0 && now - x < 86400e3) x = now;
-    return { x, y: b.equity_index };
-  });
   const jan1 = Date.UTC(new Date().getUTCFullYear(), 0, 1);
   const baseStart = rango === "ytd" ? jan1 : rango === "3m" ? now - 92 * 86400e3 : (entryTs ?? now);
   const windowStart = entryTs != null ? Math.min(baseStart, entryTs) : baseStart;
-  let stratPts: { x: number; y: number }[] = [];
-  let anchorEntry = 0; // % de la estrategia (rebaseada) en la fecha de entrada
-  if (benchAll.length) {
-    let base = benchAll[0].y;
-    for (const p of benchAll) if (p.x <= windowStart) base = p.y;
-    stratPts = benchAll.filter((p) => p.x >= windowStart - 86400e3).map((p) => ({ x: p.x, y: (p.y / base - 1) * 100 }));
-    if (entryTs != null) {
-      let be = base;
-      for (const p of benchAll) if (p.x <= entryTs) be = p.y;
-      anchorEntry = (be / base - 1) * 100;
-    }
-  }
-  const clientPts = start ? botSeries.map((p) => ({ x: p.x, y: anchorEntry + (p.pnl / start) * 100 })) : [];
+  const stratPts = serieBenchmark(bench, windowStart, now);
+  // % de la estrategia (ya rebaseada) en la fecha de entrada del cliente
+  let anchorEntry = 0;
+  if (entryTs != null) for (const p of stratPts) if (p.x <= entryTs) anchorEntry = p.y;
+  // la cuenta se dibuja con su retorno time-weighted, anclado a ese nivel, y
+  // RECORTADA a la ventana visible (si no, en "3M" la línea se dibuja fuera)
+  const clientPts = curva.length > 1
+    ? curva.map((p) => ({ x: p.x, y: anchorEntry + (p.y - 1) * 100 })).filter((p) => p.x >= windowStart)
+    : [];
   const series = [
-    { label: "Estrategia " + profName, color: "#3d996f", points: stratPts },
+    { label: "Estrategia " + profName, color: "var(--strategy)", points: stratPts },
     ...(clientPts.length > 1 ? [{ label: esAdmin ? "Cuenta del cliente (bot)" : "Tu cuenta (bot)", color: "var(--accent)", points: clientPts }] : []),
   ].filter((s) => s.points.length > 1);
 
-  // ---- RESUMEN DE LA SEMANA (auto, últimos 7 días, con los datos en vivo) ----
-  const weekStartTs = Date.now() - 7 * 86400e3;
-  const preWeek = snaps.filter((s) => new Date(s.ts).getTime() < weekStartTs);
-  const eqBase = preWeek.length ? preWeek[preWeek.length - 1].equity : (snaps[0]?.equity ?? null);
-  const pnlSemana = eqBase != null ? equityShow - eqBase : null;
-  const pnlSemanaPct = eqBase ? (pnlSemana! / eqBase) * 100 : null;
+  // ---- RESUMEN DE LA SEMANA (últimos 7 días, sobre las series canónicas) ----
+  // % time-weighted del tramo (twrEntre) y USD del bot (pnlEntre): un depósito
+  // del martes no cuenta como ganancia ni distorsiona el denominador.
+  const weekStartTs = now - 7 * 86400e3;
+  const pnlSemanaPct = twrEntre(curva, weekStartTs, now);
+  const pnlSemanaVela = pnlEntre(botSeries, weekStartTs, now);
+  const pnlSemana = pnlSemanaVela == null ? null : pnlSemanaVela + adjVivo;
   const wTrades = trades.filter((t) => new Date(t.ts).getTime() >= weekStartTs);
   const wCierres = wTrades.filter((t) => t.profit);
   const wGan = wCierres.filter((t) => t.profit > 0);
   const wPer = wCierres.filter((t) => t.profit < 0);
   const wRealizado = wCierres.reduce((a, t) => a + t.profit, 0);
-  const wAperturas = Array.from(new Set(wTrades.filter((t) => !t.profit).map((t) => t.symbol?.replace("USDT", ""))));
+  const wAperturas = Array.from(new Set(wTrades.filter(esApertura).map((t) => t.symbol?.replace("USDT", ""))));
   const posCierre = positions.filter((p) => {
     const sg = sigBySym.get(p.symbol);
     return sg && sg.side !== (p.pos_amt > 0 ? 1 : -1);
@@ -295,11 +316,18 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         </div>
       )}
 
+      {/* ============ ACTIVIDAD RECIENTE (events) ============ */}
+      <EventFeed eventos={eventos} />
+
       {/* ============ LO IMPORTANTE ============ */}
       <div className="metric-row">
         <div className="metric"><div className="v">${fmtUsd(equityShow)}</div><div className="l">Equity{enVivo ? " · en vivo" : ""}</div></div>
         <div className="metric"><div className={`v ${pnlClass(pnlShow)}`}>{fmtUsd(pnlShow)}</div><div className="l">PnL total (bot){enVivo ? " · en vivo" : ""}</div></div>
-        <div className="metric"><div className={`v ${pnlClass(totalPctShow)}`}>{fmtPct(totalPctShow)}</div><div className="l">PnL total %{enVivo ? " · en vivo" : ""}</div></div>
+        <div className="metric"
+          title="Rendimiento time-weighted: mide solo la gestión. Los depósitos y retiros no cuentan como ganancia ni como pérdida — la serie se corta en cada movimiento de capital y se encadenan los tramos.">
+          <div className={`v ${pnlClass(totalPctShow)}`}>{fmtPct(totalPctShow)}</div>
+          <div className="l">Rendimiento %{enVivo ? " · en vivo" : ""}</div>
+        </div>
         <div className="metric"><div className={`v ${pnlClass(upnlShow)}`}>{fmtUsd(upnlShow)}</div><div className="l">No realizado (posiciones){enVivo ? " · en vivo" : ""}</div></div>
         <div className="metric"
           title="La mayor caída desde el punto más alto que tocó la cuenta (no desde el capital inicial). Puede ser mayor que el PnL total: la cuenta primero subió a un pico y luego bajó. Ej.: sube +1% y luego cae a −2.5% → drawdown −3.5%.">
@@ -323,28 +351,38 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
             </>
           )}
           {cuentaAbs != null && (
-            <div className="metric"><div className={`v ${pnlClass(cuentaAbs)}`}>{fmtUsd(cuentaAbs)}</div><div className="l">PnL cuenta completa</div></div>
+            <div className="metric" title="Equity de hoy menos todo el capital aportado (inicial más depósitos, menos retiros). Incluye lo que dejaron las posiciones previas al bot.">
+              <div className={`v ${pnlClass(cuentaAbs)}`}>{fmtUsd(cuentaAbs)}</div><div className="l">PnL cuenta completa</div>
+            </div>
           )}
+          <div className="metric" title="Capital inicial más los depósitos, menos los retiros, hasta hoy.">
+            <div className="v">${fmtUsd(capitalHoy, 0)}</div><div className="l">Capital aportado</div>
+          </div>
           <div className="metric"><div className="v">${fmtUsd(snap.exposure_notional, 0)}</div><div className="l">Exposición</div></div>
           <div className="metric"><div className="v">${fmtUsd(snap.margin_used, 0)}</div><div className="l">Margen usado ({marginPct?.toFixed(1)}%)</div></div>
           <div className="metric"><div className="v">{leverage == null ? "—" : `x${leverage.toFixed(2)}`}</div><div className="l">Apalancamiento</div></div>
           <div className="metric"><div className="v">${fmtUsd(freeUsdt, 0)}</div><div className="l">USDT libre</div></div>
           <div className="metric"><div className="v">{snap.n_trades ?? 0}</div><div className="l">Trades</div></div>
         </div>
-        <p className="note">"PnL total (bot)", la curva azul y el drawdown salen de la misma serie: equity − capital inicial − cierres
+        <p className="note">"PnL total (bot)", la curva azul y el drawdown salen de la misma serie: equity − capital aportado − cierres
           de posiciones previas al bot. El "Realizado neto (ledger)" viene del historial de Binance
           {income?.hasta ? ` (sincronizado hasta ${fmtDate(income.hasta)}; los fills posteriores ya están en el equity pero aparecen en el desglose al correr el sync)` : ""}.
-          Última vela: {fmtDate(snap.ts)}.</p>
+          {flujos.length > 0 && <> Movimientos de capital detectados en el período:{" "}
+            {flujos.map((f) => `${fmtDate(new Date(f.t).toISOString())} ${f.usd >= 0 ? "+" : "−"}$${fmtUsd(Math.abs(f.usd), 0)}`).join(" · ")}
+            {" "}— descontados del rendimiento, que mide solo la gestión.</>}
+          {" "}Última vela: {fmtDate(snap.ts)}.</p>
       </details>
 
       {/* ============ RENDIMIENTO ============ */}
       {series.length > 0 && (
         <div className="card">
-          <h2>Estrategia vs cuenta · {profName}
-            {totalPctShow != null && <span className={pnlClass(totalPctShow)} style={{ marginLeft: 8 }}>{fmtPct(totalPctShow)}</span>}
-            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, float: "right" }}>
+          <h2 style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>Estrategia vs cuenta · {profName}</span>
+            {totalPctShow != null && <span className={pnlClass(totalPctShow)}>{fmtPct(totalPctShow)}</span>}
+            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, textTransform: "none" }}>
               {([["3m", "3M"], ["ytd", "YTD"], ["entrada", "Entrada"]] as const).map(([k, lbl]) => (
                 <button key={k} className="btn-mini" onClick={() => setRango(k)}
+                  aria-pressed={k === rango}
                   style={k === rango ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}>{lbl}</button>
               ))}
             </span>
@@ -352,7 +390,8 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           <PerfChart series={series} height={200} markerX={entryTs} markerLabel="Entrada" />
           <p className="note">Ambas curvas rebaseadas a 0% al inicio del período mostrado (mínimo 3 meses; YTD = desde el 1 de enero).
             Verde: la estrategia KV-9014 con el perfil{profName ? ` ${profName}` : ""} — el punto de hoy se refresca en cada vela.
-            Azul: la cuenta real gestionada por el bot, hora a hora, anclada al nivel de la estrategia en la fecha de entrada.</p>
+            Azul: la cuenta real gestionada por el bot, hora a hora, anclada al nivel de la estrategia en la fecha de entrada.
+            La curva azul es time-weighted: un depósito o un retiro cambia el tamaño de la cuenta, nunca la altura de la línea.</p>
         </div>
       )}
 
@@ -362,7 +401,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           {Object.keys(live).length > 0 && <span className="badge on" style={{ marginLeft: 8 }}>en vivo · 15 s</span>}
         </h2>
         {positions.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin posiciones abiertas</div> : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
             <table>
               <thead><tr><th>Activo</th><th>Lado</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th>
                 <th>Estado</th><th>SL</th><th>Gana desde</th><th>SL ⇄ TP</th></tr></thead>
@@ -460,7 +499,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
       <div className="card">
         <h2>En espera de señal ({pending.length})</h2>
         {pending.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Todos los activos tienen posición abierta</div> : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="table-scroll">
             <table>
               <thead><tr><th>Activo</th><th>Precio</th><th>Corto&nbsp;&lt;</th><th>Largo&nbsp;&gt;</th><th>Proximidad</th></tr></thead>
               <tbody>

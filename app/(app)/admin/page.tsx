@@ -1,14 +1,21 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Sparkline from "@/components/Sparkline";
-import { attributeIncome, Attribution, IncomeRow, BotTradeLike, BotOrderLike } from "@/lib/pnl";
+import { attributeIncome, Attribution } from "@/lib/pnl";
+import {
+  detectarFlujos, curvaTwr, maxDrawdown, seriePnl, sanearSnaps, ultimoPorDia,
+  factorVivo as factorVivoDe, Flujo,
+} from "@/lib/metrics";
+import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled } from "@/lib/queries";
+import { eventLabel } from "@/lib/events";
 
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
 type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
 type Snap = { client_id: string; ts: string; equity: number; start_equity: number; realized_cum: number; exposure_notional: number; open_positions: number; dd_pct: number; unrealized_pnl: number };
+type Movs = { flujos: Flujo[]; curva: { x: number; y: number }[]; serie: { x: number; pnl: number; base: number }[] };
 type Pos = { id: number; client_id: string; bar_time: string; symbol: string; side: string; pos_amt: number; entry_price: number; price: number };
 type Evt = { id: number; ts: string; client_id: string | null; kind: string; level: string; detail: any };
 
@@ -24,6 +31,7 @@ export default function Admin() {
   const [clients, setClients] = useState<Cli[]>([]);
   const [histByClient, setHistByClient] = useState<Map<string, Snap[]>>(new Map());
   const [attribByClient, setAttribByClient] = useState<Map<string, Attribution | null>>(new Map());
+  const [movsByClient, setMovsByClient] = useState<Map<string, Movs>>(new Map());
   const [events, setEvents] = useState<Evt[]>([]);
   const [posByClient, setPosByClient] = useState<Map<string, Pos[]>>(new Map());
   const [livePx, setLivePx] = useState<Record<string, number>>({});
@@ -33,60 +41,66 @@ export default function Admin() {
     if (enabled && !confirm("¿Activar el bot para este cliente? Empezará a operar en la próxima vela.")) return;
     if (!enabled && !confirm("¿Pausar este cliente? Sus posiciones se gestionarán según su modo de desactivación.")) return;
     setBusyId(id);
-    const sb = supabaseBrowser();
-    const { error } = await sb.rpc("admin_toggle_client", { p_client_id: id, p_enabled: enabled });
-    if (error) alert(error.message);
-    location.reload();
+    try {
+      const sb = supabaseBrowser();
+      const { error } = await sb.rpc("admin_toggle_client", { p_client_id: id, p_enabled: enabled });
+      if (error) { alert(error.message); return; }
+      location.reload();
+    } finally {
+      setBusyId(null);
+    }
   }
 
   useEffect(() => {
     (async () => {
       const sb = supabaseBrowser();
       const { data: { user } } = await sb.auth.getUser();
-      if (!user) return;
+      if (!user) { setIsAdmin(false); return; }
       const { data: adm } = await sb.from("admin_users").select("auth_uid").eq("auth_uid", user.id);
       if (!adm?.length) { setIsAdmin(false); return; }
       setIsAdmin(true);
-      const [r, c, s, e, inc, tr, ps, ord] = await Promise.all([
+      const [r, c, e] = await Promise.all([
         sb.from("bot_runs").select("*").order("id", { ascending: false }).limit(12),
         sb.from("clients").select("*, risk_profiles(name)").order("created_at"),
-        sb.from("account_snapshots")
-          .select("client_id, ts, equity, start_equity, realized_cum, exposure_notional, open_positions, dd_pct, unrealized_pnl")
-          .order("ts", { ascending: true }).limit(6000),
         sb.from("events").select("*").order("ts", { ascending: false }).limit(30),
-        sb.from("account_income").select("client_id, income_type, income, ts, symbol").limit(10000),
-        sb.from("trades").select("client_id, symbol, ts, profit").limit(2000),
-        sb.from("positions").select("id, client_id, bar_time, symbol, side, pos_amt, entry_price, price")
-          .gte("bar_time", new Date(Date.now() - 26 * 3600e3).toISOString())
-          .order("bar_time", { ascending: true }).limit(4000),
-        sb.from("orders").select("client_id, symbol, ts, reduce_only").eq("status", "filled")
-          .order("ts", { ascending: false }).limit(3000),
       ]);
       setRuns(r.data ?? []);
-      setClients(c.data ?? []);
-      const byClient = new Map<string, Snap[]>();
-      for (const row of (s.data ?? []) as Snap[]) {
-        const arr = byClient.get(row.client_id) ?? [];
-        arr.push(row);
-        byClient.set(row.client_id, arr);
-      }
-      setHistByClient(byClient);
-      // Atribucion del PnL al bot por cliente (lib/pnl.ts): ledger desde el
-      // primer snapshot de cada cliente + sus trades registrados por el bot.
-      const attrib = new Map<string, Attribution | null>();
-      const incRows = ((inc as any).data ?? []) as (IncomeRow & { client_id: string })[];
-      const trRows = ((tr as any).data ?? []) as (BotTradeLike & { client_id: string })[];
-      const ordRows = ((ord as any).data ?? []) as (BotOrderLike & { client_id: string })[];
-      for (const [cid, arr] of Array.from(byClient.entries())) {
-        const t0 = arr[0] ? new Date(arr[0].ts).getTime() : 0;
-        attrib.set(cid, attributeIncome(
-          incRows.filter((x) => x.client_id === cid && new Date(x.ts).getTime() >= t0),
-          trRows.filter((x) => x.client_id === cid),
-          ordRows.filter((x) => x.client_id === cid),
-        ));
-      }
-      setAttribByClient(attrib);
+      const clis = (c.data ?? []) as Cli[];
+      setClients(clis);
       setEvents(e.data ?? []);
+      // Carga POR CLIENTE y paginada: el barrido global con .limit() repartía
+      // las filas entre todos los clientes (≈25 días de historia con 10
+      // clientes) y truncaba en silencio — la tarjeta divergía del detalle.
+      const byClient = new Map<string, Snap[]>();
+      const attrib = new Map<string, Attribution | null>();
+      const movs = new Map<string, Movs>();
+      await Promise.all(clis.map(async (cli) => {
+        const arr = sanearSnaps((await fetchSnaps(sb, cli.id)) as unknown as Snap[])
+          .map((x) => ({ ...x, client_id: cli.id }));
+        if (!arr.length) return;
+        byClient.set(cli.id, arr);
+        const [suIncome, suTrades, suOrders] = await Promise.all([
+          fetchIncome(sb, cli.id, arr[0].ts),
+          fetchTrades(sb, cli.id, 2),
+          fetchOrdersFilled(sb, cli.id, 2),
+        ]);
+        const a = attributeIncome(suIncome as any[], suTrades as any[], suOrders as any[]);
+        attrib.set(cli.id, a);
+        // Movimientos de capital y series time-weighted: las MISMAS funciones
+        // que la vista de la cuenta (lib/metrics.ts) — tarjeta y detalle cuadran.
+        const flujos = detectarFlujos(arr, suIncome as any[]);
+        movs.set(cli.id, {
+          flujos,
+          curva: curvaTwr(arr, flujos, a?.heredadoFills ?? []),
+          serie: seriePnl(arr, flujos, a?.heredadoFills ?? []),
+        });
+      }));
+      setHistByClient(byClient);
+      setAttribByClient(attrib);
+      setMovsByClient(movs);
+      const ps = await sb.from("positions").select("id, client_id, bar_time, symbol, side, pos_amt, entry_price, price")
+        .gte("bar_time", new Date(Date.now() - 26 * 3600e3).toISOString())
+        .order("bar_time", { ascending: true }).limit(4000);
       // posiciones abiertas de la ÚLTIMA vela de cada cliente
       const pb = new Map<string, Pos[]>();
       for (const row of ((ps as any).data ?? []) as Pos[]) {
@@ -119,14 +133,18 @@ export default function Admin() {
     const syms = Array.from(new Set(Array.from(posByClient.values()).flat().map((p) => p.symbol)));
     if (!syms.length) return;
     let alive = true;
+    const wanted = new Set(syms);
     const load = async () => {
+      // UNA sola llamada para todos los símbolos de todos los clientes: evita
+      // N_clientes × M_símbolos peticiones cada 15 s (rate-limit de Binance)
       const out: Record<string, number> = {};
-      await Promise.all(syms.map(async (sym) => {
-        try {
-          const r = await fetch(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${sym}`);
-          if (r.ok) { const j = await r.json(); const v = +j.price; if (v > 0) out[sym] = v; }
-        } catch { /* sin red: se mantiene el precio de la vela */ }
-      }));
+      try {
+        const r = await fetch("https://fapi.binance.com/fapi/v1/ticker/price");
+        if (r.ok) {
+          const j = (await r.json()) as { symbol: string; price: string }[];
+          for (const x of j) if (wanted.has(x.symbol)) { const v = +x.price; if (v > 0) out[x.symbol] = v; }
+        }
+      } catch { /* sin red: se mantiene el precio de la vela */ }
       if (alive && Object.keys(out).length) setLivePx((prev) => ({ ...prev, ...out }));
     };
     load();
@@ -150,13 +168,15 @@ export default function Admin() {
     const arr = histByClient.get(id);
     return arr && arr.length ? arr[arr.length - 1] : undefined;
   };
+  // Sparkline sobre la curva TIME-WEIGHTED, no sobre el equity crudo: un
+  // depósito ya no se dibuja como un rally. Últimos 30 días, un punto por día.
   const sparkOf = (id: string) => {
-    const arr = histByClient.get(id) ?? [];
-    const cutoff = Date.now() - 7 * 86400_000;
-    const recent = arr.filter((s) => new Date(s.ts).getTime() >= cutoff);
-    const pts = (recent.length >= 2 ? recent : arr.slice(-30))
-      .map((s) => ({ x: new Date(s.ts).getTime(), y: s.equity }));
-    return pts;
+    const curva = movsByClient.get(id)?.curva ?? [];
+    const cutoff = Date.now() - 30 * 86400_000;
+    const diario = ultimoPorDia(curva.map((p) => ({ ts: new Date(p.x).toISOString(), p })))
+      .map((r) => r.p);
+    const recent = diario.filter((p) => p.x >= cutoff);
+    return (recent.length >= 2 ? recent : diario).map((p) => ({ x: p.x, y: (p.y - 1) * 100 }));
   };
 
   // Estado EN VIVO de las posiciones de un cliente (precios cada 15 s)
@@ -172,42 +192,43 @@ export default function Admin() {
     return { upnl, exp, n: poss.length };
   };
 
-  // Drawdown MÁXIMO — misma definición que la vista de la cuenta: la mayor
-  // caída desde el pico de la serie equity − heredado, incluyendo el punto en
-  // vivo. (El dd_pct del snapshot es el retroceso ACTUAL, no el máximo.)
-  const ddMaxOf = (id: string): number | null => {
+  /** Factor time-weighted con el tramo en vivo — vía lib/metrics (factorVivo),
+   *  que además neutraliza un depósito ocurrido entre la última vela y ahora. */
+  const factorOf = (id: string): number | null => {
     const arr = histByClient.get(id) ?? [];
-    if (arr.length < 2) return null;
-    const hf = (attribByClient.get(id)?.heredadoFills ?? [])
-      .map((h) => ({ t: new Date(h.ts).getTime(), usd: h.usd })).sort((a, b) => a.t - b.t);
-    const heredadoHasta = (t: number) => hf.reduce((a, h) => a + (h.t <= t ? h.usd : 0), 0);
-    let peak = -Infinity, dd = 0;
-    for (const s of arr) {
-      const eq = s.equity - heredadoHasta(new Date(s.ts).getTime());
-      peak = Math.max(peak, eq);
-      if (peak > 0) dd = Math.min(dd, (eq / peak - 1) * 100);
-    }
-    const last = arr[arr.length - 1];
+    const m = movsByClient.get(id);
+    if (!m || arr.length < 2) return null;
+    const s = latestOf(id);
     const ls = liveStatsOf(id);
-    if (ls && last.unrealized_pnl != null) {
-      const eqNow = last.equity + (ls.upnl - last.unrealized_pnl) - heredadoHasta(Date.now());
-      peak = Math.max(peak, eqNow);
-      if (peak > 0) dd = Math.min(dd, (eqNow / peak - 1) * 100);
-    }
-    return dd;
+    const equityVivo = s && ls && s.unrealized_pnl != null ? s.equity + ls.upnl - s.unrealized_pnl : null;
+    return factorVivoDe(arr, m.flujos, attribByClient.get(id)?.heredadoFills ?? [], equityVivo);
   };
 
-  // PnL atribuido al BOT — MISMA fórmula que la vista de la cuenta (AccountView):
-  // equity − capital inicial − cierres heredados (posiciones previas al bot),
-  // ajustado con el uPnL EN VIVO para que tarjeta y detalle coincidan siempre.
+  // Drawdown MÁXIMO — misma definición que la vista de la cuenta: la mayor
+  // caída desde el pico de la curva time-weighted, incluyendo el punto en vivo.
+  const ddMaxOf = (id: string): number | null => {
+    const curva = movsByClient.get(id)?.curva ?? [];
+    if (curva.length < 2) return null;
+    const f = factorOf(id);
+    return maxDrawdown([...curva.map((p) => p.y), ...(f != null ? [f] : [])]);
+  };
+
+  // PnL atribuido al BOT: el último punto de la MISMA seriePnl que usa la vista
+  // de la cuenta, más el ajuste en vivo — nada reimplementado.
   const pnlBotOf = (id: string): number | null => {
+    const serie = movsByClient.get(id)?.serie ?? [];
     const s = latestOf(id);
-    if (!s || !s.start_equity) return null;
-    const a = attribByClient.get(id);
-    let v = s.equity - s.start_equity - (a?.heredado ?? 0);
+    if (!s || serie.length < 2) return null;
+    let v = serie[serie.length - 1].pnl;
     const ls = liveStatsOf(id);
     if (ls && s.unrealized_pnl != null) v += ls.upnl - s.unrealized_pnl;
     return v;
+  };
+
+  /** Rendimiento time-weighted en % — el número que se muestra junto al PnL. */
+  const pnlPctOf = (id: string): number | null => {
+    const f = factorOf(id);
+    return f == null ? null : (f - 1) * 100;
   };
 
   const active = clients.filter((c) => c.enabled);
@@ -219,6 +240,11 @@ export default function Admin() {
   const pnlTotal = active.reduce((a, c) => a + (pnlBotOf(c.id) ?? 0), 0);
   const exposure = active.reduce((a, c) => a + (liveStatsOf(c.id)?.exp ?? latestOf(c.id)?.exposure_notional ?? 0), 0);
   const cutoff = nextCutoff();
+  /** Horas desde el último snapshot del cliente (para marcar datos rancios). */
+  const staleHoras = (id: string): number | null => {
+    const s = latestOf(id);
+    return s ? (Date.now() - new Date(s.ts).getTime()) / 3600e3 : null;
+  };
 
   return (
     <>
@@ -237,7 +263,8 @@ export default function Admin() {
         {clients.map((c) => {
           const s = latestOf(c.id);
           const pnl = pnlBotOf(c.id);
-          const pnlPct = s && s.start_equity && pnl != null ? (pnl / s.start_equity) * 100 : null;
+          const pnlPct = pnlPctOf(c.id);
+          const movs = movsByClient.get(c.id);
           const a = attribByClient.get(c.id);
           const realizado = a ? a.realizadoNeto : (s?.realized_cum ?? null);
           const spark = sparkOf(c.id);
@@ -251,14 +278,29 @@ export default function Admin() {
                   {c.activation_requested && !c.enabled && <span className="badge on">SOLICITA ALTA</span>}
                   {c.key_status !== "valid" && <span className="badge neutral">sin claves</span>}
                   {c.mode === "testnet" && <span className="badge neutral">testnet</span>}
+                  {(() => {
+                    const h = staleHoras(c.id);
+                    return h != null && h > 3
+                      ? <span className="badge off" title="El bot no reporta snapshots de esta cuenta desde hace más de 3 horas: el equity y el AUM usan el último dato disponible">datos de hace {Math.round(h)} h</span>
+                      : null;
+                  })()}
                 </div>
               </div>
 
               <div>
                 <div className="cc-equity">{s ? `$${fmtUsd(s.equity, 0)}` : "—"}</div>
-                <div className={`cc-pnl ${pnlClass(pnl)}`}>
+                <div className={`cc-pnl ${pnlClass(pnl)}`}
+                  title="PnL del bot en USD y rendimiento time-weighted. Los depósitos y retiros no cuentan como resultado.">
                   {pnl == null ? "Sin datos" : `${fmtUsd(pnl, 0)} (${fmtPct(pnlPct, 1)}) · PnL bot`}
                 </div>
+                {!!movs?.flujos.length && (
+                  <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}
+                    title={movs.flujos.map((f) => `${fmtDate(new Date(f.t).toISOString())}  ${f.usd >= 0 ? "+" : "−"}$${fmtUsd(Math.abs(f.usd))}  (${f.fuente})`).join("\n")}>
+                    {movs.flujos.length} movimiento{movs.flujos.length === 1 ? "" : "s"} de capital · neto{" "}
+                    {movs.flujos.reduce((a, f) => a + f.usd, 0) >= 0 ? "+" : "−"}$
+                    {fmtUsd(Math.abs(movs.flujos.reduce((a, f) => a + f.usd, 0)), 0)}
+                  </div>
+                )}
               </div>
 
               <Sparkline points={spark} color={sparkColor} />
@@ -342,7 +384,7 @@ export default function Admin() {
             </tbody>
           </table>
         )}
-        <p className="note">Watchdog: cada 10 min Supabase comprueba la última ejecución; si supera el umbral (90 min) envía alerta por Telegram y registra el evento. Próximo corte mensual: {cutoff.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })} 00:00 UTC.</p>
+        <p className="note">Watchdog: cada 10 min Supabase comprueba la última ejecución; si supera el umbral (90 min) envía alerta por Telegram y registra el evento. Próximo corte mensual: {cutoff.toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" })} 00:00 UTC.</p>
       </details>
 
       <details className="card" open>
@@ -359,7 +401,7 @@ export default function Admin() {
                   <tr key={e.id} title={JSON.stringify(e.detail ?? {})}>
                     <td>{fmtDate(e.ts)}</td>
                     <td>{cli?.name?.trim() || (e.client_id ? e.client_id.slice(0, 8) : "sistema")}</td>
-                    <td className={e.level === "error" ? "neg" : e.level === "warn" ? "" : "muted"}>{e.kind}</td>
+                    <td className={e.level === "error" ? "neg" : e.level === "warn" ? "" : "muted"}>{eventLabel(e)}</td>
                     <td style={{ textAlign: "left", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                       className="muted">{String(det).slice(0, 120)}</td>
                   </tr>

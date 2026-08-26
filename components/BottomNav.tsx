@@ -24,13 +24,17 @@ const items = [
 export default function BottomNav() {
   const path = usePathname();
   return (
-    <nav className="bottomnav">
-      {items.map((it) => (
-        <Link key={it.href} href={it.href} className={path.startsWith(it.href) ? "active" : ""}>
-          <svg viewBox="0 0 24 24" fill="currentColor">{it.icon}</svg>
-          {it.label}
-        </Link>
-      ))}
+    <nav className="bottomnav" aria-label="Navegación principal">
+      {items.map((it) => {
+        const activo = path === it.href || path.startsWith(it.href + "/");
+        return (
+          <Link key={it.href} href={it.href} className={activo ? "active" : ""}
+            aria-current={activo ? "page" : undefined}>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">{it.icon}</svg>
+            {it.label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }
