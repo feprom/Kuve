@@ -32,7 +32,7 @@ export async function fetchAll<T>(
 export function fetchSnaps(sb: SupabaseClient, clientId: string) {
   return fetchAll<Record<string, unknown>>((from, to) =>
     sb.from("account_snapshots")
-      .select("ts, bar_time, equity, wallet_balance, unrealized_pnl, realized_cum, start_equity, exposure_notional, margin_used, open_positions, dd_pct")
+      .select("ts, bar_time, equity, wallet_balance, unrealized_pnl, realized_cum, start_equity, exposure_notional, margin_used, open_positions, dd_pct, n_trades")
       .eq("client_id", clientId)
       .order("ts", { ascending: true })
       .range(from, to),
@@ -66,7 +66,7 @@ export function fetchTrades(sb: SupabaseClient, clientId: string, limitPages = 5
 export function fetchOrdersFilled(sb: SupabaseClient, clientId: string, limitPages = 5) {
   return fetchAll<Record<string, unknown>>((from, to) =>
     sb.from("orders")
-      .select("id, ts, symbol, side, status, reduce_only, qty, executed_qty, avg_price, price")
+      .select("id, ts, symbol, side, status, reduce_only, qty, executed_qty, avg_price")
       .eq("client_id", clientId)
       .eq("status", "filled")
       .order("ts", { ascending: false })
