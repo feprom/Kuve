@@ -106,18 +106,25 @@ export default function TvChart({
             priceLineVisible: false, lastValueVisible: true,
             crosshairMarkerRadius: 3,
           });
-      // huecos reales: un tramo sin datos (>gapMs) se corta con whitespace
+      // Huecos REALES: un tramo sin datos se corta con whitespace en vez de
+      // dibujarse como recta inventada. El umbral se deriva del muestreo de
+      // CADA serie (mediana de los deltas × 6): una serie diaria no se tritura
+      // con un umbral pensado para la horaria. El whitespace va en un segundo
+      // estrictamente intermedio (tiempos no ascendentes rompen el renderer).
+      const deltas: number[] = [];
+      for (let i = 1; i < s.points.length; i++) deltas.push(s.points[i].x - s.points[i - 1].x);
+      const med = deltas.slice().sort((a, b) => a - b)[deltas.length >> 1] || 3600e3;
+      const lim = Math.max(med * 6, gapMs);
       const data: ({ time: UTCTimestamp; value: number } | { time: UTCTimestamp })[] = [];
-      let prev: number | null = null;
+      let prevSec: number | null = null;
       for (const p of s.points) {
-        const t = Math.floor(p.x / 1000) as UTCTimestamp;
-        if (prev != null && p.x - prev > gapMs) {
-          data.push({ time: Math.floor((prev + 1) / 1000) as UTCTimestamp });
+        const t = Math.floor(p.x / 1000);
+        if (prevSec != null && t <= prevSec) continue; // dedupe/orden estricto
+        if (prevSec != null && (t - prevSec) * 1000 > lim && t - prevSec > 1) {
+          data.push({ time: (prevSec + 1) as UTCTimestamp });
         }
-        if (!data.length || (data[data.length - 1].time as number) < (t as number)) {
-          data.push({ time: t, value: p.y });
-        }
-        prev = p.x;
+        data.push({ time: t as UTCTimestamp, value: p.y });
+        prevSec = t;
       }
       api.setData(data);
       apis.push({ label: s.label, api, area: !!s.area });
