@@ -10,7 +10,7 @@ import {
   detectarFlujos, curvaTwr, maxDrawdown, seriePnl, sanearSnaps, ultimoPorDia,
   factorVivo as factorVivoDe, Flujo,
 } from "@/lib/metrics";
-import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled } from "@/lib/queries";
+import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchPositionsLatest } from "@/lib/queries";
 import { eventLabel } from "@/lib/events";
 
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
@@ -38,6 +38,7 @@ export default function Admin() {
   const [posByClient, setPosByClient] = useState<Map<string, Pos[]>>(new Map());
   const [livePx, setLivePx] = useState<Record<string, number>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   async function toggleClient(id: string, enabled: boolean) {
     if (enabled && !confirm("¿Activar el bot para este cliente? Empezará a operar en la próxima vela.")) return;
@@ -55,6 +56,7 @@ export default function Admin() {
 
   useEffect(() => {
     (async () => {
+     try {
       const sb = supabaseBrowser();
       const { data: { user } } = await sb.auth.getUser();
       if (!user) { setIsAdmin(false); return; }
@@ -76,6 +78,7 @@ export default function Admin() {
       const byClient = new Map<string, Snap[]>();
       const attrib = new Map<string, Attribution | null>();
       const movs = new Map<string, Movs>();
+      const posRaw = new Map<string, Pos[]>();
       await Promise.all(clis.map(async (cli) => {
         const arr = sanearSnaps((await fetchSnaps(sb, cli.id)) as unknown as Snap[])
           .map((x) => ({ ...x, client_id: cli.id }));
@@ -96,29 +99,20 @@ export default function Admin() {
           curva: curvaTwr(arr, flujos, a?.heredadoFills ?? []),
           serie: seriePnl(arr, flujos, a?.heredadoFills ?? []),
         });
+        posRaw.set(cli.id, (await fetchPositionsLatest(sb, cli.id)) as unknown as Pos[]);
       }));
       setHistByClient(byClient);
       setAttribByClient(attrib);
       setMovsByClient(movs);
-      const ps = await sb.from("positions").select("id, client_id, bar_time, symbol, side, pos_amt, entry_price, price")
-        .gte("bar_time", new Date(Date.now() - 26 * 3600e3).toISOString())
-        .order("bar_time", { ascending: true }).limit(4000);
-      // posiciones abiertas de la ÚLTIMA vela de cada cliente
-      const pb = new Map<string, Pos[]>();
-      for (const row of ((ps as any).data ?? []) as Pos[]) {
-        const arr = pb.get(row.client_id) ?? [];
-        arr.push(row);
-        pb.set(row.client_id, arr);
-      }
+      // Ya vienen de fetchPositionsLatest: filas crudas de la ULTIMA vela de
+      // CADA cliente, paginadas. Solo queda deduplicar (positions no tiene
+      // unique de negocio: el reproceso de una vela deja duplicados) quedandose
+      // con el id mayor, y filtrar los ceros AL FINAL — si no, un cierre
+      // reciente queda tapado por la fila vieja del mismo simbolo.
       const pbLatest = new Map<string, Pos[]>();
-      for (const [cid, arr] of Array.from(pb.entries())) {
-        const lastBar = arr[arr.length - 1].bar_time;
-        // deduplicar PRIMERO (fila más nueva por id gana, incluye cierres con
-        // pos_amt=0) y filtrar ceros AL FINAL — si no, un cierre reciente
-        // queda tapado por la fila vieja cuando el bot reprocesa la vela.
+      for (const [cid, arr] of Array.from(posRaw.entries())) {
         const seen = new Map<string, Pos>();
         for (const p of arr) {
-          if (p.bar_time !== lastBar) continue;
           const prev = seen.get(p.symbol);
           if (!prev || p.id > prev.id) seen.set(p.symbol, p);
         }
@@ -126,6 +120,12 @@ export default function Admin() {
           .sort((a, b) => a.symbol.localeCompare(b.symbol)));
       }
       setPosByClient(pbLatest);
+     } catch (e: any) {
+       // Un fallo aqui dejaba la pagina en 'Cargando…' o pintando AUM $0
+       // sin decir que hubo error — el mismo modo de fallo del incidente
+       // de `orders.price`, que en el dashboard si estaba cubierto.
+       setErr(e?.message ?? String(e));
+     }
     })();
   }, []);
 
@@ -157,6 +157,11 @@ export default function Admin() {
 
   if (isAdmin === null) return <div className="muted">Cargando…</div>;
   if (!isAdmin) return <div className="card"><p className="note">No tienes permisos de administrador.</p></div>;
+  if (err) return (
+    <div className="card"><h2>No se pudieron cargar los datos</h2>
+      <p className="note">Error: {err}. Reintentá recargando la página; si persiste, avisanos.</p>
+    </div>
+  );
 
   const lastRun = runs[0];
   const ageMin = lastRun ? (Date.now() - new Date(lastRun.started_at).getTime()) / 60000 : Infinity;

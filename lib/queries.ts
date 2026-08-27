@@ -82,3 +82,33 @@ export function fetchEvents(sb: SupabaseClient, clientId: string, max = 200) {
     .order("ts", { ascending: false })
     .limit(max);
 }
+
+/**
+ * Posiciones de la ULTIMA vela de un cliente. Dos viajes cortos (la vela mas
+ * reciente, y las filas de esa vela) en lugar de un barrido por ventana: un
+ * `.gte("bar_time", ahora-26h)` global reparte el corte de max-rows entre todos
+ * los clientes y, ordenado ascendente, devuelve las filas MAS VIEJAS —
+ * /admin ya truncaba en silencio con 5 clientes (1.080 filas contra el corte
+ * de 1.000) y mostraba exposicion y uPnL de dos velas atras.
+ *
+ * Devuelve las filas crudas SIN deduplicar ni filtrar ceros: `positions` no
+ * tiene unique de negocio y el reproceso de una vela deja duplicados, asi que
+ * quien consume decide (la fila de `id` mayor gana, y los cierres con
+ * pos_amt=0 solo se descartan DESPUES de deduplicar).
+ */
+export async function fetchPositionsLatest(sb: SupabaseClient, clientId: string) {
+  const { data: ult, error: e1 } = await sb.from("positions")
+    .select("bar_time").eq("client_id", clientId)
+    .order("bar_time", { ascending: false }).limit(1);
+  if (e1) throw new Error(e1.message);
+  const barTime = ult?.[0]?.bar_time as string | undefined;
+  if (!barTime) return [];
+  return fetchAll<Record<string, unknown>>((from, to) =>
+    sb.from("positions")
+      .select("id, client_id, bar_time, symbol, side, pos_amt, entry_price, price")
+      .eq("client_id", clientId)
+      .eq("bar_time", barTime)
+      .order("id", { ascending: true })
+      .range(from, to),
+  2);
+}

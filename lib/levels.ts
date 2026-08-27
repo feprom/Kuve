@@ -49,9 +49,25 @@ export async function computeLevels(
   if (!prm) return null;
   try {
     const t0 = entryMs - (prm.ap + prm.xl + 10) * 3600e3;
-    const res = await fetch(`${FAPI}/klines?symbol=${symbol}&interval=1h&startTime=${t0}&limit=1500`);
-    if (!res.ok) return null;
-    const kl: any[][] = await res.json();
+    // Binance devuelve como mucho 1500 velas por llamada. Con una sola, la
+    // ventana ARRANCA en t0 y TERMINA 1500 h despues: pasados ~51 dias desde la
+    // entrada la ultima vela devuelta ya no es la actual, y `price`, `chanHi`,
+    // `chanLo`, `loSince` y `hiSince` se calculan sobre un mercado viejo que se
+    // aleja un dia por dia (la SOL de Denise lleva 54 dias abierta). Encadenamos
+    // paginas hasta alcanzar la vela en curso.
+    const kl: any[][] = [];
+    let cursor = t0;
+    for (let pag = 0; pag < 8; pag++) {   // 8 x 1500 h = ~500 dias, tope de seguridad
+      const res = await fetch(`${FAPI}/klines?symbol=${symbol}&interval=1h&startTime=${cursor}&limit=1500`);
+      if (!res.ok) return kl.length ? null : null;
+      const lote: any[][] = await res.json();
+      if (!lote.length) break;
+      // La primera vela del lote siguiente repite la ultima del anterior.
+      for (const k of lote) if (!kl.length || +k[0] > +kl[kl.length - 1][0]) kl.push(k);
+      const ultimaApertura = +lote[lote.length - 1][0];
+      if (lote.length < 1500 || ultimaApertura >= Date.now() - 3600e3) break;
+      cursor = ultimaApertura + 1;
+    }
     if (!kl.length) return null;
     const h = kl.map((k) => +k[2]);
     const l = kl.map((k) => +k[3]);

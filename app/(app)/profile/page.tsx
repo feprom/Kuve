@@ -24,10 +24,15 @@ export default function ProfilePage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [telegram, setTelegram] = useState("");
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   async function load() {
+   try {
+    setLoadErr(null);
     const { data: { user } } = await sb().auth.getUser();
-    if (!user) return;
+    // Sesion rota: sin esto la pagina quedaba en "Cargando…" para siempre, sin
+    // acceso ni al boton de cerrar sesion. El dashboard ya redirige igual.
+    if (!user) { router.replace("/login"); return; }
     const { data: adm } = await sb().from("admin_users").select("auth_uid").eq("auth_uid", user.id);
     setIsAdmin(!!adm?.length);
     // maybeSingle: con 0 filas .single() devuelve error y la página quedaba en
@@ -39,7 +44,12 @@ export default function ProfilePage() {
     setProfiles(p ?? []);
     // key metadata is not directly readable (no RLS policy) — key_status lives on clients
     setCreds(c?.key_status === "valid" ? { status: "valid" } : null);
+   } catch (e: any) {
+    setLoadErr(e?.message ?? String(e));
+   } finally {
+    // SIEMPRE, tambien tras un fallo: si no, la pantalla no sale de "Cargando…".
     setLoaded(true);
+   }
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -136,6 +146,11 @@ export default function ProfilePage() {
   }
 
   if (!loaded) return <div className="muted">Cargando…</div>;
+  if (loadErr) return (
+    <div className="card"><h2>No se pudieron cargar los datos</h2>
+      <p className="note">Error: {loadErr}. Reintentá recargando la página; si persiste, avisanos.</p>
+    </div>
+  );
   if (!client) return (
     <>
       <div className="card"><h2>Tu cuenta aún no está vinculada</h2>

@@ -266,10 +266,26 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   // % de la estrategia (ya rebaseada) en la fecha de entrada del cliente
   let anchorEntry = 0;
   if (entryTs != null) for (const p of stratPts) if (p.x <= entryTs) anchorEntry = p.y;
-  // la cuenta se dibuja con su retorno time-weighted, anclado a ese nivel, y
-  // RECORTADA a la ventana visible (si no, en "3M" la línea se dibuja fuera)
+  // La cuenta se dibuja con su retorno time-weighted, RECORTADA a la ventana
+  // visible (si no, en "3M" la linea se dibuja fuera).
+  //
+  // El anclaje al nivel de la estrategia solo tiene sentido en "Entrada", donde
+  // ambas curvas arrancan a la vez y el hueco entre ellas es el retraso real de
+  // la cuenta. En 1M/3M/YTD la ventana empieza mucho despues de la entrada, y
+  // sumar `anchorEntry` producia una linea cuyo valor absoluto no es ningun
+  // retorno del cliente: la cabecera decia +2,1% (twrEntre de la ventana) y la
+  // leyenda del chart +9,4% en la misma tarjeta. Ahi se rebasea a 0% en
+  // `windowStart`, igual que la estrategia y que /performance.
+  const yBase = curva.length > 1
+    ? (rango === "entrada"
+        ? null
+        : (curva.filter((p) => p.x <= windowStart).slice(-1)[0] ?? curva[0]).y)
+    : null;
   const clientPts = curva.length > 1
-    ? curva.map((p) => ({ x: p.x, y: anchorEntry + (p.y - 1) * 100 })).filter((p) => p.x >= windowStart)
+    ? curva.map((p) => ({
+        x: p.x,
+        y: yBase == null ? anchorEntry + (p.y - 1) * 100 : (p.y / yBase - 1) * 100,
+      })).filter((p) => p.x >= windowStart)
     : [];
   const series = [
     { label: "Estrategia " + profName, color: "var(--strategy)", points: stratPts },
@@ -284,8 +300,18 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const hoy0 = new Date(now); const todayStartTs = Date.UTC(hoy0.getUTCFullYear(), hoy0.getUTCMonth(), hoy0.getUTCDate());
   const pnlHoyVela = pnlEntre(botSeries, todayStartTs, now);
   const pnlHoy = pnlHoyVela == null ? null : pnlHoyVela + adjVivo;
-  const pctHoy = twrEntre(curva, todayStartTs, now);
-  const pnlSemanaPct = twrEntre(curva, weekStartTs, now);
+  // Los USD llevan `adjVivo` (el movimiento desde la ultima vela cerrada), asi
+  // que el % debe llevar el MISMO tramo vivo o el par se contradice: sin esto,
+  // un lunes por la mañana con las posiciones moviendose y ninguna vela del dia
+  // cerrada todavia, la linea decia "+$312,40 (+0,00%) hoy".
+  // `factorVivo / curva[ultima].y` es exactamente ese tramo, ya neutralizado de
+  // flujos intra-tramo — el mismo que gobierna `totalPctShow`.
+  const ratioVivo = factorVivo != null && curva.length > 1 && curva[curva.length - 1].y > 0
+    ? factorVivo / curva[curva.length - 1].y : 1;
+  const conVivo = (pct: number | null) =>
+    pct == null ? null : ((1 + pct / 100) * ratioVivo - 1) * 100;
+  const pctHoy = conVivo(twrEntre(curva, todayStartTs, now));
+  const pnlSemanaPct = conVivo(twrEntre(curva, weekStartTs, now));
   const pnlSemanaVela = pnlEntre(botSeries, weekStartTs, now);
   const pnlSemana = pnlSemanaVela == null ? null : pnlSemanaVela + adjVivo;
   const wTrades = trades.filter((t) => new Date(t.ts).getTime() >= weekStartTs);
@@ -396,9 +422,11 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
             </span>
           </h2>
           <PerfChart series={series} height={200} markerX={entryTs} markerLabel="Entrada" />
-          <p className="note">Ambas curvas rebaseadas a 0% al inicio del período mostrado (mínimo 3 meses; YTD = desde el 1 de enero).
-            Verde: la estrategia KV-9014 con el perfil{profName ? ` ${profName}` : ""} — el punto de hoy se refresca en cada vela.
-            Azul: la cuenta real gestionada por el bot, hora a hora, anclada al nivel de la estrategia en la fecha de entrada.
+          <p className="note">Verde: la estrategia KV-9014 con el perfil{profName ? ` ${profName}` : ""} — el punto de hoy se refresca en cada vela.
+            Azul: la cuenta real gestionada por el bot, hora a hora.
+            {rango === "entrada"
+              ? " La estrategia se rebasea a 0% al inicio del período y tu cuenta se dibuja anclada al nivel que la estrategia tenía el día de tu entrada, para que el hueco entre ambas sea el retraso real de la cuenta."
+              : " Ambas curvas rebaseadas a 0% al inicio del período mostrado (mínimo 3 meses; YTD = desde el 1 de enero), así que el % de la cabecera es el mismo que muestra la línea."}
             La curva azul es time-weighted: un depósito o un retiro cambia el tamaño de la cuenta, nunca la altura de la línea.</p>
         </div>
       )}
