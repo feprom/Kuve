@@ -188,13 +188,23 @@ export default function ProfilePage() {
       <div className="card">
         <h2>Avisos por Telegram</h2>
         {client.telegram_handle ? (
-          <p className="note">Contacto configurado: <b>@{client.telegram_handle}</b>{" "}
-            <span className="badge on" style={{ marginLeft: 6 }}>CONECTADO</span><br />
-            Te llegan las novedades de tu cuenta (aperturas, cierres e incidencias) por Telegram.
-            Asegurate de haber iniciado conversación con el bot de avisos de Kuve para poder recibirlas.</p>
+          client.telegram_chat_id ? (
+            <p className="note">Contacto: <b>@{client.telegram_handle}</b>{" "}
+              <span className="badge on" style={{ marginLeft: 6 }}>CONECTADO</span><br />
+              Te llegan por Telegram las novedades de tu cuenta: aperturas, cierres e incidencias.</p>
+          ) : (
+            <p className="note">Contacto: <b>@{client.telegram_handle}</b>{" "}
+              <span className="badge neutral" style={{ marginLeft: 6 }}>FALTA UN PASO</span><br />
+              Para activar los avisos, escribile cualquier mensaje a{" "}
+              <a href="https://t.me/KuveAgent_bot" target="_blank" rel="noreferrer"><b>@KuveAgent_bot</b></a>{" "}
+              desde tu Telegram. En unos minutos queda conectado y te confirmamos por ahí.</p>
+          )
         ) : (
           <p className="note">Dejanos tu usuario de Telegram y te mandamos las novedades de tu cuenta:
-            aperturas y cierres de posiciones, e incidencias que requieran tu atención.</p>
+            aperturas y cierres de posiciones, e incidencias que requieran tu atención.
+            Después escribile un mensaje a{" "}
+            <a href="https://t.me/KuveAgent_bot" target="_blank" rel="noreferrer"><b>@KuveAgent_bot</b></a>{" "}
+            para completar la conexión.</p>
         )}
         <form onSubmit={saveTelegram} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
           <label className="field" style={{ marginBottom: 0, minWidth: 200, flex: "1 1 200px" }}>Usuario de Telegram
