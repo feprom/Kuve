@@ -17,7 +17,7 @@ export default function LevelBar({ sl, best, price, entry, breached = false }: {
   const gid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const span = best - sl;
   const frac = (v: number) => (span !== 0 ? Math.min(1, Math.max(0, (v - sl) / span)) : 0.5);
-  const W = 170, H = 30, r = 4.5, barY = 8;
+  const W = 186, H = 32, r = 4.5, barY = 8;
   const xPrice = 6 + frac(price) * (W - 12);
   const xEntry = 6 + frac(entry) * (W - 12);
   return (
@@ -37,8 +37,8 @@ export default function LevelBar({ sl, best, price, entry, breached = false }: {
       <circle cx={xPrice} cy={barY} r={r}
         fill={breached ? "var(--red)" : "var(--text)"} stroke="var(--bg)" strokeWidth="1.5" />
       {/* números: SL a la izquierda, TP a la derecha */}
-      <text x="4" y={H - 3} fill="var(--red)" fontSize="9.5" fontWeight="600">{fmtN(sl)}</text>
-      <text x={W - 4} y={H - 3} textAnchor="end" fill="var(--green)" fontSize="9.5" fontWeight="600">{fmtN(best)}</text>
+      <text x="4" y={H - 3} fill="var(--red)" fontSize="11" fontWeight="600">{fmtN(sl)}</text>
+      <text x={W - 4} y={H - 3} textAnchor="end" fill="var(--green)" fontSize="11" fontWeight="600">{fmtN(best)}</text>
     </svg>
   );
 }

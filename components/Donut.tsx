@@ -16,7 +16,10 @@ export default function Donut({ slices }: { slices: Slice[] }) {
         role="img" aria-label={`Composición de la exposición: ${slices.map((s) => `${s.label.replace("USDT", "")} ${((s.value / total) * 100).toFixed(0)}%`).join(", ")}`}>
         {slices.map((s, i) => {
           const frac = s.value / total;
-          const dash = `${frac * C} ${C}`;
+          // hueco de 2px entre sectores: los colores adyacentes no se tocan
+          // (regla de marcas de dataviz; ayuda además en visión con daltonismo)
+          const largo = Math.max(0.5, frac * C - (slices.length > 1 ? 2 : 0));
+          const dash = `${largo} ${C - largo}`;
           const off = -acc * C;
           acc += frac;
           return (
@@ -35,13 +38,14 @@ export default function Donut({ slices }: { slices: Slice[] }) {
           <div className="row" key={s.label}>
             <span className="sw" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
             <span>{s.label.replace("USDT", "")}</span>
+            {/* siempre presente: la leyenda es una grilla de columnas fijas */}
             {s.side === "CORTO"
-              ? <span className="neg" title="Posición corta (vendida)">▼</span>
+              ? <span className="dir short" title="Posición corta (vendida) — la dirección no indica resultado">▼</span>
               : s.side === "LARGO"
-                ? <span className="pos" title="Posición larga (comprada)">▲</span>
-                : null}
-            <span className="muted">{((s.value / total) * 100).toFixed(1)}%</span>
-            <span className="muted">· ${fmtUsd(s.value, 0)}</span>
+                ? <span className="dir long" title="Posición larga (comprada) — la dirección no indica resultado">▲</span>
+                : <span aria-hidden />}
+            <span className="muted pctcell">{((s.value / total) * 100).toFixed(1)}%</span>
+            <span className="muted usd">· ${fmtUsd(s.value, 0)}</span>
             {s.pnl != null && <b className={pnlClass(s.pnl)} style={{ marginLeft: 4 }}>{s.pnl >= 0 ? "+" : ""}{fmtUsd(s.pnl)}</b>}
           </div>
         ))}

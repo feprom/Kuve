@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
+import { fmtUsd, fmtPct, fmtDate, fmtDateUtc, pnlClass } from "@/lib/format";
 import Donut from "@/components/Donut";
 import TriggerGauge from "@/components/TriggerGauge";
 import LevelBar from "@/components/LevelBar";
@@ -63,7 +63,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const [ledger, setLedger] = useState<IncomeRow[]>([]);   // crudo: incluye TRANSFER
   const [levels, setLevels] = useState<Record<string, Levels | null>>({});
   const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
-  const [rango, setRango] = useState<"3m" | "ytd" | "entrada">("3m");
+  const [rango, setRango] = useState<"1m" | "3m" | "ytd" | "entrada">("3m");
   const [live, setLive] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -178,7 +178,16 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     return { flujos, heredadoFills, botSeries, curva };
   }, [snaps, ledger, income]);
 
-  if (loading) return <div className="muted">Cargando…</div>;
+  if (loading) return (
+    <>
+      <div className="skel" style={{ height: 118, marginBottom: 10 }} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <div className="skel" style={{ height: 64 }} /><div className="skel" style={{ height: 64 }} />
+      </div>
+      <div className="skel" style={{ height: 280, marginBottom: 14 }} />
+      <div className="skel" style={{ height: 180 }} />
+    </>
+  );
   if (err) return (
     <div className="card"><h2>No se pudieron cargar los datos</h2>
       <p className="note">Error: {err}. Reintentá recargando la página; si persiste, avisanos.</p>
@@ -243,8 +252,16 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const entryTs = snaps.length ? new Date(snaps[0].ts).getTime() : null;
   const now = Date.now();
   const jan1 = Date.UTC(new Date().getUTCFullYear(), 0, 1);
-  const baseStart = rango === "ytd" ? jan1 : rango === "3m" ? now - 92 * 86400e3 : (entryTs ?? now);
-  const windowStart = entryTs != null ? Math.min(baseStart, entryTs) : baseStart;
+  const baseStart = rango === "ytd" ? jan1
+    : rango === "1m" ? now - 31 * 86400e3
+    : rango === "3m" ? now - 92 * 86400e3
+    : (entryTs ?? now);
+  // en 1M/3M la ventana NO se extiende hasta la entrada: es la ventana pedida
+  const windowStart = rango === "entrada" && entryTs != null ? entryTs
+    : rango === "ytd" && entryTs != null ? Math.min(jan1, entryTs) === jan1 ? jan1 : entryTs
+    : Math.max(baseStart, entryTs ?? baseStart);
+  // el % que gobierna la cabecera del grafico es el de SU ventana
+  const pctVentana = twrEntre(curva, windowStart, now);
   const stratPts = serieBenchmark(bench, windowStart, now);
   // % de la estrategia (ya rebaseada) en la fecha de entrada del cliente
   let anchorEntry = 0;
@@ -263,6 +280,11 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   // % time-weighted del tramo (twrEntre) y USD del bot (pnlEntre): un depósito
   // del martes no cuenta como ganancia ni distorsiona el denominador.
   const weekStartTs = now - 7 * 86400e3;
+  // "hoy" = desde las 00:00 UTC (las velas del bot son UTC)
+  const hoy0 = new Date(now); const todayStartTs = Date.UTC(hoy0.getUTCFullYear(), hoy0.getUTCMonth(), hoy0.getUTCDate());
+  const pnlHoyVela = pnlEntre(botSeries, todayStartTs, now);
+  const pnlHoy = pnlHoyVela == null ? null : pnlHoyVela + adjVivo;
+  const pctHoy = twrEntre(curva, todayStartTs, now);
   const pnlSemanaPct = twrEntre(curva, weekStartTs, now);
   const pnlSemanaVela = pnlEntre(botSeries, weekStartTs, now);
   const pnlSemana = pnlSemanaVela == null ? null : pnlSemanaVela + adjVivo;
@@ -286,51 +308,39 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
 
   return (
     <>
-      {/* ============ RESUMEN DE LA SEMANA ============ */}
-      {snaps.length > 1 && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <h2>Resumen de la semana · {fEs(weekStartTs)} – {fEs(Date.now())} de {new Date().getFullYear()}</h2>
-          <p style={{ fontSize: 14, lineHeight: 1.65, margin: "10px 0 0" }}>
-            La cuenta {pnlSemana != null && pnlSemana >= 0 ? "ganó" : "perdió"}{" "}
-            <b className={pnlClass(pnlSemana)}>{fmtUsd(pnlSemana)} ({fmtPct(pnlSemanaPct)})</b> en los últimos 7 días.
-            {wAperturas.length > 0 && <> Se abrieron <b>{wAperturas.length}</b> posiciones ({wAperturas.join(", ")}).</>}
-            {wCierres.length > 0 && <> Se cerraron <b>{wCierres.length}</b>: {wGan.length} ganadora{wGan.length === 1 ? "" : "s"} y{" "}
-              {wPer.length} perdedora{wPer.length === 1 ? "" : "s"}, saldo realizado{" "}
-              <b className={pnlClass(wRealizado)}>{fmtUsd(wRealizado)}</b>.</>}
-            {wCierres.length === 0 && <> No hubo cierres en la semana.</>}
-            {" "}Ahora corren <b>{positions.length}</b> posiciones con{" "}
-            <b className={pnlClass(upnlLiveTot)}>{fmtUsd(upnlLiveTot)}</b> no realizado{enVivo ? " (en vivo)" : ""}.
-          </p>
-          <p style={{ fontSize: 14, lineHeight: 1.65, margin: "8px 0 0" }}>
-            <b>Qué esperar:</b>{" "}
-            {posCierre.length > 0 && <>{posCierre.map((p) => p.symbol.replace("USDT", "")).join(", ")}{" "}
-              {posCierre.length === 1 ? "sale" : "salen"} en la próxima vela por señal del motor. </>}
-            {posCerca.length > 0 && <>{posCerca.map((p) => p.symbol.replace("USDT", "")).join(", ")}{" "}
-              {posCerca.length === 1 ? "corre" : "corren"} a menos del 2% de su stop y{" "}
-              {posCerca.length === 1 ? "podría salir" : "podrían salir"} en los próximos días si el precio no acompaña. </>}
-            {posCierre.length === 0 && posCerca.length === 0 && positions.length > 0 &&
-              <>Ninguna posición está en señal de cierre ni pegada a su stop. </>}
-            El resto sigue con trailing: sin take-profit fijo, cada salida depende de que el precio toque su SL,
-            que solo se mueve a favor.
-          </p>
-        </div>
-      )}
+      {/* ============ ESTADO DE SINCRONIZACION ============ */}
+      {(() => {
+        const edadMin = (now - new Date(snap.ts).getTime()) / 60e3;
+        const cls = edadMin > 180 ? "bad" : edadMin > 90 ? "warn" : "";
+        const proxVela = 60 - Math.floor((Date.now() % 3600e3) / 60e3);
+        return (
+          <div className="syncbar">
+            <span className={`dot ${cls}`} aria-hidden />
+            <span>{cls === "" ? "Sincronizado" : cls === "warn" ? `Última vela hace ${Math.round(edadMin)} min` : "Sin datos frescos"} · vela {fmtDateUtc(snap.ts)}</span>
+            {enVivo && <span>· precios en vivo (15 s)</span>}
+            <span style={{ marginLeft: "auto" }}>próxima vela en {proxVela} min</span>
+          </div>
+        );
+      })()}
 
-      {/* ============ ACTIVIDAD RECIENTE (events) ============ */}
-      <EventFeed eventos={eventos} />
-
-      {/* ============ LO IMPORTANTE ============ */}
+      {/* ============ LO IMPORTANTE: UN heroe, el resto subordinado ============ */}
       <div className="metric-row">
-        <div className="metric"><div className="v">${fmtUsd(equityShow)}</div><div className="l">Equity{enVivo ? " · en vivo" : ""}</div></div>
-        <div className="metric"><div className={`v ${pnlClass(pnlShow)}`}>{fmtUsd(pnlShow)}</div><div className="l">PnL total (bot){enVivo ? " · en vivo" : ""}</div></div>
-        <div className="metric"
-          title="Rendimiento time-weighted: mide solo la gestión. Los depósitos y retiros no cuentan como ganancia ni como pérdida — la serie se corta en cada movimiento de capital y se encadenan los tramos.">
-          <div className={`v ${pnlClass(totalPctShow)}`}>{fmtPct(totalPctShow)}</div>
-          <div className="l">Rendimiento %{enVivo ? " · en vivo" : ""}</div>
+        <div className="metric hero">
+          <div className="l">Equity{enVivo ? " · en vivo" : ""}</div>
+          <div className="v" aria-live="polite">
+            <span key={Math.round(equityShow * 100)} className={enVivo ? "tick" : undefined}>${fmtUsd(equityShow)}</span>
+          </div>
+          <div className="sub">
+            <span className={pnlClass(pnlHoy)}><b>{fmtUsd(pnlHoy)}</b> ({fmtPct(pctHoy)}) hoy</span>
+            <span className={pnlClass(pnlShow)}
+              title="PnL y rendimiento time-weighted del bot desde tu entrada: los depósitos y retiros no cuentan como ganancia ni como pérdida.">
+              <b>{fmtUsd(pnlShow)}</b> ({fmtPct(totalPctShow)}) total
+            </span>
+          </div>
         </div>
-        <div className="metric"><div className={`v ${pnlClass(upnlShow)}`}>{fmtUsd(upnlShow)}</div><div className="l">No realizado (posiciones){enVivo ? " · en vivo" : ""}</div></div>
+        <div className="metric"><div className={`v ${pnlClass(upnlShow)}`}>{fmtUsd(upnlShow)}</div><div className="l">No realizado (posiciones)</div></div>
         <div className="metric"
-          title="La mayor caída desde el punto más alto que tocó la cuenta (no desde el capital inicial). Puede ser mayor que el PnL total: la cuenta primero subió a un pico y luego bajó. Ej.: sube +1% y luego cae a −2.5% → drawdown −3.5%.">
+          title="La mayor caída desde el punto más alto que tocó la cuenta (no desde el capital inicial). Puede ser mayor que el PnL total: la cuenta primero subió a un pico y luego bajó.">
           <div className={`v ${pnlClass(ddBot)}`}>{fmtPct(ddBot, 1)}</div><div className="l">Drawdown máx. (desde el pico)</div>
         </div>
       </div>
@@ -370,7 +380,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           {flujos.length > 0 && <> Movimientos de capital detectados en el período:{" "}
             {flujos.map((f) => `${fmtDate(new Date(f.t).toISOString())} ${f.usd >= 0 ? "+" : "−"}$${fmtUsd(Math.abs(f.usd), 0)}`).join(" · ")}
             {" "}— descontados del rendimiento, que mide solo la gestión.</>}
-          {" "}Última vela: {fmtDate(snap.ts)}.</p>
+          {" "}Última vela: {fmtDateUtc(snap.ts)}.</p>
       </details>
 
       {/* ============ RENDIMIENTO ============ */}
@@ -378,12 +388,10 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         <div className="card">
           <h2 style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span>Estrategia vs cuenta · {profName}</span>
-            {totalPctShow != null && <span className={pnlClass(totalPctShow)}>{fmtPct(totalPctShow)}</span>}
-            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 6, textTransform: "none" }}>
-              {([["3m", "3M"], ["ytd", "YTD"], ["entrada", "Entrada"]] as const).map(([k, lbl]) => (
-                <button key={k} className="btn-mini" onClick={() => setRango(k)}
-                  aria-pressed={k === rango}
-                  style={k === rango ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}>{lbl}</button>
+            {pctVentana != null && <span className={pnlClass(pctVentana)} title="Rendimiento time-weighted de tu cuenta DENTRO de la ventana del gráfico">{fmtPct(pctVentana)}</span>}
+            <span className="seg" style={{ marginLeft: "auto", textTransform: "none" }}>
+              {([["1m", "1M"], ["3m", "3M"], ["ytd", "YTD"], ["entrada", "Entrada"]] as const).map(([k, lbl]) => (
+                <button key={k} onClick={() => setRango(k)} aria-pressed={k === rango}>{lbl}</button>
               ))}
             </span>
           </h2>
@@ -397,13 +405,13 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
 
       {/* ============ POSICIONES ============ */}
       <div className="card">
-        <h2>Corriendo ({positions.length}) · vela {fmtDate(snap.ts)}
+        <h2>Corriendo ({positions.length}) · vela {fmtDateUtc(snap.ts)}
           {Object.keys(live).length > 0 && <span className="badge on" style={{ marginLeft: 8 }}>en vivo · 15 s</span>}
         </h2>
         {positions.length === 0 ? <div className="muted" style={{ fontSize: 13 }}>Sin posiciones abiertas</div> : (
           <div className="table-scroll">
             <table>
-              <thead><tr><th>Activo</th><th>Lado</th><th>Monto $</th><th>Entrada</th><th>Precio</th><th>uPnL</th><th>%</th>
+              <thead><tr><th>Activo</th><th>Lado</th><th className="hide-sm">Monto $</th><th className="hide-sm">Entrada</th><th>Precio</th><th>uPnL</th><th>%</th>
                 <th>Estado</th><th>SL</th><th>Gana desde</th><th>SL ⇄ TP</th></tr></thead>
               <tbody>
                 {positions.map((p) => {
@@ -420,10 +428,12 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
                   return (
                     <tr key={p.symbol}>
                       <td><AssetName symbol={p.symbol} price={p.price} /></td>
-                      <td className={p.side === "LARGO" ? "pos" : "neg"}>{p.side}</td>
-                      <td>{fmtUsd(notional, 0)}</td>
-                      <td>{fmtUsd(p.entry_price)}</td>
-                      <td title={esVivo ? "Precio en vivo (se refresca cada 15 s)" : "Precio de la última vela"}>{fmtUsd(price)}</td>
+                      <td className={`dir ${p.side === "LARGO" ? "long" : "short"}`}>{p.side}</td>
+                      <td className="hide-sm">{fmtUsd(notional, 0)}</td>
+                      <td className="hide-sm">{fmtUsd(p.entry_price)}</td>
+                      <td title={esVivo ? "Precio en vivo (se refresca cada 15 s)" : "Precio de la última vela"}>
+                        <span key={price} className={esVivo ? "tick" : undefined}>{fmtUsd(price)}</span>
+                      </td>
                       <td className={pnlClass(upnl)}>{fmtUsd(upnl)}</td>
                       <td className={pnlClass(pnlPct)}>{fmtPct(pnlPct)}</td>
                       <td>
@@ -461,7 +471,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
                           </td>
                         </>
                       ) : (
-                        <td colSpan={3} className="muted">calculando…</td>
+                        <><td className="muted">—</td><td className="muted">—</td><td className="muted">calculando…</td></>
                       )}
                     </tr>
                   );
@@ -494,6 +504,39 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           Barra <b>SL ⇄ TP</b>: rojo = stop, verde = mejor precio, línea punteada = entrada, punto = precio actual.
           Niveles en vivo con velas de Binance y los parámetros del motor.</p>
       </div>
+
+      {/* ============ RESUMEN DE LA SEMANA ============ */}
+      {snaps.length > 1 && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <h2>Resumen de la semana · {fEs(weekStartTs)} – {fEs(Date.now())} de {new Date().getFullYear()}</h2>
+          <p style={{ fontSize: 14, lineHeight: 1.65, margin: "10px 0 0" }}>
+            La cuenta {pnlSemana != null && pnlSemana >= 0 ? "ganó" : "perdió"}{" "}
+            <b className={pnlClass(pnlSemana)}>{fmtUsd(pnlSemana)} ({fmtPct(pnlSemanaPct)})</b> en los últimos 7 días.
+            {wAperturas.length > 0 && <> Se abrieron <b>{wAperturas.length}</b> posiciones ({wAperturas.join(", ")}).</>}
+            {wCierres.length > 0 && <> Se cerraron <b>{wCierres.length}</b>: {wGan.length} ganadora{wGan.length === 1 ? "" : "s"} y{" "}
+              {wPer.length} perdedora{wPer.length === 1 ? "" : "s"}, saldo realizado{" "}
+              <b className={pnlClass(wRealizado)}>{fmtUsd(wRealizado)}</b>.</>}
+            {wCierres.length === 0 && <> No hubo cierres en la semana.</>}
+            {" "}Ahora corren <b>{positions.length}</b> posiciones con{" "}
+            <b className={pnlClass(upnlLiveTot)}>{fmtUsd(upnlLiveTot)}</b> no realizado{enVivo ? " (en vivo)" : ""}.
+          </p>
+          <p style={{ fontSize: 14, lineHeight: 1.65, margin: "8px 0 0" }}>
+            <b>Qué esperar:</b>{" "}
+            {posCierre.length > 0 && <>{posCierre.map((p) => p.symbol.replace("USDT", "")).join(", ")}{" "}
+              {posCierre.length === 1 ? "sale" : "salen"} en la próxima vela por señal del motor. </>}
+            {posCerca.length > 0 && <>{posCerca.map((p) => p.symbol.replace("USDT", "")).join(", ")}{" "}
+              {posCerca.length === 1 ? "corre" : "corren"} a menos del 2% de su stop y{" "}
+              {posCerca.length === 1 ? "podría salir" : "podrían salir"} en los próximos días si el precio no acompaña. </>}
+            {posCierre.length === 0 && posCerca.length === 0 && positions.length > 0 &&
+              <>Ninguna posición está en señal de cierre ni pegada a su stop. </>}
+            El resto sigue con trailing: sin take-profit fijo, cada salida depende de que el precio toque su SL,
+            que solo se mueve a favor.
+          </p>
+        </div>
+      )}
+
+      {/* ============ ACTIVIDAD RECIENTE (events) ============ */}
+      <EventFeed eventos={eventos} />
 
       {/* ============ EN ESPERA ============ */}
       <div className="card">

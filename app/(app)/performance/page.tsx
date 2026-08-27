@@ -75,7 +75,13 @@ export default function Performance() {
     return { flujos, heredadoFills, curva };
   }, [snaps, ledger, attrib]);
 
-  if (loading) return <div className="muted">Cargando…</div>;
+  if (loading) return (
+    <>
+      <div className="skel" style={{ height: 96, marginBottom: 10 }} />
+      <div className="skel" style={{ height: 240, marginBottom: 14 }} />
+      <div className="skel" style={{ height: 160 }} />
+    </>
+  );
   if (err) return (
     <div className="card"><h2>No se pudieron cargar los datos</h2>
       <p className="note">Error: {err}. Reintentá recargando la página.</p></div>

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Sparkline from "@/components/Sparkline";
@@ -26,6 +27,7 @@ function nextCutoff(): Date {
 }
 
 export default function Admin() {
+  const router = useRouter();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [clients, setClients] = useState<Cli[]>([]);
@@ -270,7 +272,9 @@ export default function Admin() {
           const spark = sparkOf(c.id);
           const sparkColor = pnl == null ? "var(--accent)" : pnl >= 0 ? "var(--green)" : "var(--red)";
           return (
-            <Link key={c.id} href={`/admin/${c.id}`} className="client-card">
+            <div key={c.id} className="client-card" role="link" tabIndex={0}
+              onClick={() => router.push(`/admin/${c.id}`)}
+              onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) router.push(`/admin/${c.id}`); }}>
               <div className="cc-head">
                 <div className="cc-name">{c.name || c.id.slice(0, 8)}</div>
                 <div className="cc-badges">
@@ -350,7 +354,7 @@ export default function Admin() {
                 <div className="mm"><div className="v">{c.risk_profiles?.name?.split(" ")[0] ?? "—"}</div><div className="l">Perfil</div></div>
               </div>
 
-              <div onClick={(e) => e.preventDefault()}>
+              <div onClick={(e) => e.stopPropagation()}>
                 {c.enabled ? (
                   <button className="btn-mini pause" disabled={busyId === c.id}
                     onClick={() => toggleClient(c.id, false)}>⏸ Pausar</button>
@@ -361,7 +365,7 @@ export default function Admin() {
                     onClick={() => toggleClient(c.id, true)}>▶ Activar</button>
                 )}
               </div>
-            </Link>
+            </div>
           );
         })}
       </div>

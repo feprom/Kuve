@@ -3,7 +3,7 @@
   --panel: #0b0e13;
   --panel2: #12161d;
   --text: #e8ecf4;
-  --muted: #8b93a7;
+  --muted: #98a0b4;  /* subido de #8b93a7: a 10.5px sobre #0b0e13 quedaba al límite AA */
   --accent: #29a9e1;
   --accent-ink: #001018;
   --border: #1c2430;
@@ -12,7 +12,7 @@
   --green: #35c98e;
   --red: #e05d75;
   --warn: #e0b45d;
-  --strategy: #3d996f;       /* la línea verde "estrategia" de los charts */
+  --strategy: #4bb082;       /* línea "estrategia": subordinada al accent pero legible (4.6:1) */
   --nav-h: 62px;
   color-scheme: dark;        /* selects y scrollbars nativos en oscuro */
 }
@@ -56,10 +56,44 @@ a { color: var(--accent); text-decoration: none; }
 
 .metric-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
 .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
-.metric .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.metric .v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .metric .l { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
 
+/* Tarjeta HÉROE: el equity domina la vista (jerarquía Robinhood/Revolut) —
+   un solo número grande, el resto subordinado. */
+.metric.hero { grid-column: 1 / -1; padding: 16px 18px 14px; }
+.metric.hero .v { font-size: 36px; letter-spacing: -0.02em; line-height: 1.1; }
+.metric.hero .sub { font-size: 14.5px; margin-top: 6px; font-variant-numeric: tabular-nums; display: flex; gap: 14px; flex-wrap: wrap; }
+
+/* Barra de estado de sincronización (confianza: el sistema está vivo y se
+   sabe cuándo se midió). Punto verde/ámbar/rojo según frescura. */
+.syncbar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin: 0 0 12px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.syncbar .dot { width: 8px; height: 8px; border-radius: 8px; background: var(--green); flex: 0 0 auto; }
+.syncbar .dot.warn { background: var(--warn); }
+.syncbar .dot.bad { background: var(--red); }
+
+/* Skeleton de carga: la silueta del layout, nunca un "Cargando…" a secas. */
+@keyframes skel-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+.skel { background: var(--panel2); border-radius: 10px; animation: skel-pulse 1.4s ease-in-out infinite; }
+
+/* Flash de celda al refrescar un precio en vivo (la cuenta está viva). */
+@keyframes tick-flash { from { background: rgba(53, 201, 142, .16); } to { background: transparent; } }
+.tick { animation: tick-flash .5s ease-out; border-radius: 4px; }
+
+/* Segmented control para el selector de período. */
+.seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--border-strong); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { background: transparent; border: none; color: var(--muted); font-size: 12.5px; padding: 6px 12px; border-radius: 7px; cursor: pointer; min-height: 32px; font-family: inherit; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+@media (max-width: 640px) { .hide-sm { display: none; } }
+
 .pos { color: var(--green); } .neg { color: var(--red); } .muted { color: var(--muted); }
+
+/* Dirección de una posición (largo/corto): NO es un resultado — nunca el
+   verde/rojo de ganancia/pérdida. Un corto ganando se pintaba en rojo. */
+.dir { font-weight: 600; letter-spacing: .03em; }
+.dir.long  { color: var(--accent); }
+.dir.short { color: #a07ce8; }
 
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
@@ -100,7 +134,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .badge.neutral { background: var(--panel2); color: var(--muted); border: 1px solid var(--border); }
 
 .tabs { display: flex; gap: 6px; margin-bottom: 14px; overflow-x: auto; }
-.tab { flex: 1; background: var(--panel); border: 1px solid var(--border-strong); color: var(--muted); padding: 12px 0; border-radius: 9px; cursor: pointer; font-size: 13px; text-align: center; white-space: nowrap; min-height: 44px; font-family: inherit; }
+.tab { flex: 1 0 auto; min-width: 84px; background: var(--panel); border: 1px solid var(--border-strong); color: var(--muted); padding: 12px 14px; border-radius: 9px; cursor: pointer; font-size: 13px; text-align: center; white-space: nowrap; min-height: 44px; font-family: inherit; }
 .tab.active { background: var(--accent); color: var(--accent-ink); font-weight: 600; border-color: var(--accent); }
 
 .admin-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 14px; }
@@ -163,8 +197,16 @@ details.card[open] summary { margin-bottom: 12px; }
   z-index: 40; box-shadow: 0 8px 24px rgba(0,0,0,.5);
 }
 
-.legend { display: flex; flex-direction: column; gap: 7px; font-size: 13px; min-width: 0; }
-.legend .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+/* Columnas fijas: los % y los $ deben quedar alineados entre filas o la
+   leyenda deja de ser comparable. Nada de flex-wrap por fila. */
+.legend { display: grid; gap: 6px; font-size: 12.5px; min-width: 0; flex: 1 1 200px; }
+.legend .row {
+  display: grid; align-items: center; gap: 8px; min-width: 0;
+  grid-template-columns: 11px minmax(46px, auto) 14px auto 1fr auto;
+  font-variant-numeric: tabular-nums;
+}
+.legend .pctcell { text-align: right; }
+@media (max-width: 400px) { .legend .row .usd { display: none; } }
 .legend .sw { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
 .compbody { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
 .note { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
