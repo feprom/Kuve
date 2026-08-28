@@ -112,3 +112,29 @@ export async function fetchPositionsLatest(sb: SupabaseClient, clientId: string)
       .range(from, to),
   2);
 }
+
+/**
+ * Compensaciones reconocidas por Kuve y aun NO liquidadas.
+ *
+ * QUE SON: un DERECHO DE COBRO, no equity. Kuve reconoce una perdida causada por
+ * un defecto suyo y se compromete a saldarla en la liquidacion de fin de anio.
+ * Mientras no se transfiera, ese dinero NO esta en Binance.
+ *
+ * POR QUE LA APP LAS NECESITA: el informe mensual y la tarjeta diaria publican
+ * "saldo Binance + saldo Kuve = total". La app solo mostraba el equity de
+ * Binance, asi que el mismo cliente veia dos saldos distintos el mismo dia — en
+ * Denise, 4.422,61 en pantalla contra 4.767,98 en el PDF: un 7,8 % de diferencia
+ * sin ninguna explicacion. Los cinco clientes estaban afectados.
+ *
+ * NUNCA sumar esto dentro del equity: el extracto de Binance prevalece y tiene
+ * que seguir cuadrando con lo que la app llama "Equity". Va en su propia linea.
+ *
+ * RLS: `ccomp_select_own` / `ccomp_admin_all` — el cliente ve solo lo suyo.
+ */
+export function fetchCompensaciones(sb: SupabaseClient, clientId: string) {
+  return sb.from("client_compensations")
+    .select("id, fecha, monto_usd, concepto, estado")
+    .eq("client_id", clientId)
+    .eq("estado", "pendiente")
+    .order("fecha", { ascending: true });
+}

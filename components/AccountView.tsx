@@ -33,7 +33,7 @@ import {
   detectarFlujos, seriePnl, curvaTwr, maxDrawdown, serieBenchmark, sanearSnaps,
   factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf,
 } from "@/lib/metrics";
-import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchEvents } from "@/lib/queries";
+import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchEvents, fetchCompensaciones } from "@/lib/queries";
 import type { EventRow } from "@/lib/events";
 
 type Snap = {
@@ -68,6 +68,8 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [eventos, setEventos] = useState<EventRow[]>([]);
+  /** Compensaciones reconocidas y pendientes de liquidar: el "saldo en Kuve". */
+  const [compensaciones, setCompensaciones] = useState<{ monto_usd: number }[]>([]);
   const tuyo = esAdmin ? "del cliente" : "tuyo";
 
   useEffect(() => {
@@ -81,7 +83,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         // serie pierde su inception en silencio (el TWR arrancaría tarde)
         const snapRows = sanearSnaps((await fetchSnaps(sb, client.id)) as unknown as Snap[]);
         const latest = snapRows[snapRows.length - 1];
-        const [b, sig, t, p, inc, ord, ev] = await Promise.all([
+        const [b, sig, t, p, inc, ord, ev, comp] = await Promise.all([
           client.risk_profile_id
             ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", client.risk_profile_id).order("date", { ascending: true })
             : Promise.resolve({ data: [] as any[] }),
@@ -96,10 +98,12 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
             : Promise.resolve({ data: [] as any[] }),
           fetchOrdersFilled(sb, client.id).then((data) => ({ data })),
           fetchEvents(sb, client.id, 60),
+          fetchCompensaciones(sb, client.id),
         ]);
         if (!alive) return;
         setSnaps(snapRows);
         setBench((b as any).data ?? []);
+        setCompensaciones(((comp as any).data ?? []) as { monto_usd: number }[]);
         setSignals(((sig as any).data ?? []) as Signal[]);
         setTrades(((t as any).data ?? []) as Trade[]);
         // IMPORTANTE: deduplicar PRIMERO (gana la fila más nueva por id) y recién
@@ -216,6 +220,15 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   // sin uPnL de vela no hay base para ajustar: mejor 0 que inflar el equity
   const adjVivo = enVivo && snap.unrealized_pnl != null ? upnlLiveTot - snap.unrealized_pnl : 0;
   const equityShow = snap.equity + adjVivo;
+  /**
+   * SALDO EN KUVE: lo reconocido y aun no transferido. NO se suma al equity —
+   * ese numero tiene que seguir cuadrando con el extracto de Binance, que es lo
+   * que el informe declara que prevalece. Va en su propia linea, y el total es
+   * la suma explicita de las dos, con la misma identidad que publica la tarjeta
+   * diaria: saldoBinance + saldoKuve = total.
+   */
+  const saldoKuve = compensaciones.reduce((a, k) => a + Number(k.monto_usd ?? 0), 0);
+  const saldoTotal = equityShow + saldoKuve;
   const pnlShow = pnlAbs == null ? null : pnlAbs + adjVivo;
   const cuentaAbs = capitalHoy ? equityShow - capitalHoy : null;
   const upnlShow = enVivo ? upnlLiveTot : snap.unrealized_pnl;
@@ -370,6 +383,24 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           <div className={`v ${pnlClass(ddBot)}`}>{fmtPct(ddBot, 1)}</div><div className="l">Drawdown máx. (desde el pico)</div>
         </div>
       </div>
+
+      {saldoKuve > 0.005 && (
+        <div className="metric-row" style={{ marginTop: -6 }}>
+          <div className="metric">
+            <div className="v">${fmtUsd(equityShow)}</div>
+            <div className="l">Saldo en Binance</div>
+          </div>
+          <div className="metric"
+            title="Compensaciones que Kuve te ha reconocido y aún no ha transferido. No están en tu cuenta de Binance: se liquidan el 31/12/2026 contra las comisiones por ganancias.">
+            <div className="v">${fmtUsd(saldoKuve)}</div>
+            <div className="l">Saldo en Kuve · pendiente</div>
+          </div>
+          <div className="metric" style={{ outline: "1px solid var(--accent)", outlineOffset: -1 }}>
+            <div className="v" style={{ color: "var(--accent)" }}>${fmtUsd(saldoTotal)}</div>
+            <div className="l">Total a tu favor</div>
+          </div>
+        </div>
+      )}
 
       {/* ============ SEGUNDO PLANO ============ */}
       <details className="card" style={{ marginBottom: 14 }}>

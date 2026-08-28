@@ -607,3 +607,77 @@ export function serieCompleta(snaps: SnapLike[], createdAt: string | null | unde
   // margen de 48 h: entre el alta del cliente y su primer snapshot pasan horas
   return ms(snaps[0].ts) <= ms(createdAt) + 48 * 3600e3;
 }
+
+// ---------------------------------------------------------------------------
+// 8. Retorno MONEY-WEIGHTED (Modified Dietz)
+// ---------------------------------------------------------------------------
+/**
+ * QUE PROBLEMA RESUELVE, con el caso que lo motivo.
+ *
+ * Roberto, agosto 2026: TWR desde su entrada −3,54 % de mercado y −0,01 % con
+ * la reparacion, pero su resultado en dinero es −39,54 USD de mercado y
+ * +153,41 USD con la reparacion. El porcentaje dice que perdio y el importe
+ * dice que gano. Las dos cifras son correctas: responden a preguntas distintas.
+ *
+ *   TWR  (time-weighted)  — como rindio UN DOLAR invertido todo el tramo.
+ *                           Neutraliza el momento y el tamano de los aportes,
+ *                           que el gestor no decide. Es el estandar GIPS para
+ *                           publicar la gestion y el UNICO comparable contra un
+ *                           indice. Es lo que Kuve publica, y no cambia.
+ *
+ *   MWR  (money-weighted) — como rindio SU DINERO, ponderando cada tramo por el
+ *                           capital que de verdad tenia en juego. Es la cifra
+ *                           cuyo signo coincide siempre con el del importe.
+ *
+ * Con cero flujos las dos coinciden exactamente. Divergen cuando hay aportes, y
+ * pueden hasta cambiar de signo: Roberto perdio cuando la cuenta era chica
+ * (2.490 USD en julio) y cobro la reparacion cuando ya era grande (7.244 USD el
+ * 27-ago). Ponderado por capital gana; por dolar invertido, no.
+ *
+ * POR QUE MODIFIED DIETZ Y NO LA TIR. La TIR exige resolver iterativamente y
+ * puede no tener solucion unica con flujos de signo mixto. Modified Dietz es la
+ * aproximacion estandar del sector —la que GIPS acepta para periodos con
+ * flujos— y es cerrada:
+ *
+ *     R = G / (BV + SUM(w_i * F_i))        w_i = (T - t_i) / T
+ *
+ * es decir, cada aporte cuenta en el denominador solo por la FRACCION DEL TRAMO
+ * que estuvo invertido. Los 2.000 USD que Roberto ingreso el 27-ago pesan 1/55
+ * en su denominador, no 1: contarlos enteros diria que su dinero rindio mucho
+ * peor de lo que rindio.
+ *
+ * NUNCA COMPARAR ESTO CON EL INDICE. El benchmark se publica time-weighted;
+ * enfrentarle un money-weighted compara dos cosas distintas y el cliente leeria
+ * como habilidad (o torpeza) del gestor lo que solo es el calendario de sus
+ * propios depositos.
+ *
+ * @param ganancia  resultado del tramo en USD (ya neto de costos).
+ * @param bvUsd     capital al inicio del tramo (para una cuenta que nace en
+ *                  `desde`, su capital fundacional).
+ * @param flujos    aportes (+) y retiros (-). Solo cuentan los de (desde, hasta].
+ */
+export function modifiedDietz(
+  ganancia: number,
+  bvUsd: number,
+  flujos: Flujo[],
+  desde: number,
+  hasta: number,
+): { pct: number | null; capitalMedio: number; flujoNeto: number } {
+  const T = hasta - desde;
+  const dentro = flujos.filter((f) => f.t > desde && f.t <= hasta);
+  const flujoNeto = dentro.reduce((a, f) => a + f.usd, 0);
+  if (!(T > 0) || !isFinite(bvUsd)) return { pct: null, capitalMedio: NaN, flujoNeto };
+
+  // Peso = fraccion del tramo que ese dinero estuvo trabajando. Se acota a
+  // [0,1]: un flujo fuera de ventana ya quedo filtrado, pero un timestamp
+  // sucio no puede meter un peso negativo en el denominador.
+  const capitalMedio = bvUsd + dentro.reduce((a, f) => {
+    const w = Math.min(1, Math.max(0, (hasta - f.t) / T));
+    return a + w * f.usd;
+  }, 0);
+
+  // Denominador <= 0: la cuenta se vacio o los retiros superan lo aportado. No
+  // hay tasa que describa eso; devolver un numero seria inventarlo.
+  if (!(capitalMedio > 0) || !isFinite(ganancia)) return { pct: null, capitalMedio, flujoNeto };
+  return { pct: (ganancia / capitalMedio) * 100, capitalMedio, flujoNeto };
+}
