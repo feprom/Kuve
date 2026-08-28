@@ -1,10 +1,18 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import Logo from "@/components/Logo";
 
 export default function Register() {
+  // El invitado llega por /register?ref=CODIGO. Su fila de `clients` todavia no
+  // existe, asi que el codigo se guarda y se canjea desde el perfil, cuando ya
+  // hay a quien vincularlo. Ver `set_referred_by` (migracion 07).
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref) window.localStorage.setItem("kuve_ref", ref.trim().toUpperCase());
+  }, []);
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

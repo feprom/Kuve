@@ -1,4 +1,5 @@
 "use client";
+import { fmtUsd } from "@/lib/format";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -13,6 +14,12 @@ export default function ProfilePage() {
   const sb = () => supabaseBrowser();
   const [client, setClient] = useState<any>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [referidos, setReferidos] = useState<any[]>([]);
+  const [bonos, setBonos] = useState(0);
+  const [reglas, setReglas] = useState<any>(null);
+  const [solicitud, setSolicitud] = useState<any>(null);
+  const [copiado, setCopiado] = useState(false);
+  const [pidiendo, setPidiendo] = useState(false);
   const [creds, setCreds] = useState<any>(null);
   const [name, setName] = useState("");
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
@@ -40,6 +47,26 @@ export default function ProfilePage() {
     const { data: c } = await sb().from("clients").select("*").eq("auth_uid", user.id).maybeSingle();
     setClient(c); setName(c?.name ?? "");
     setTelegram(c?.telegram_handle ?? "");
+    // Programa de referidos. Si el usuario llego con ?ref=, el codigo quedo en
+    // localStorage al registrarse: se canjea ahora, cuando ya existe su fila de
+    // cliente. El RPC lo ignora si ya tenia invitador o si el codigo es el suyo.
+    const pend = typeof window !== "undefined" ? window.localStorage.getItem("kuve_ref") : null;
+    if (pend && c?.id && !c?.referred_by_code) {
+      await sb().rpc("set_referred_by", { p_code: pend });
+      window.localStorage.removeItem("kuve_ref");
+    }
+    if (c?.id) {
+      const [refs, bon, rul, req] = await Promise.all([
+        sb().from("referrals").select("id, invited_id, activated_at").eq("referrer_id", c.id),
+        sb().from("client_compensations").select("monto_usd, estado").eq("client_id", c.id).eq("tipo", "bono").neq("estado", "anulado"),
+        sb().from("referral_rules").select("bono_usd, tope_usd, activo").eq("id", 1).maybeSingle(),
+        sb().from("report_requests").select("id, estado, solicitado_en").eq("client_id", c.id).order("solicitado_en", { ascending: false }).limit(1),
+      ]);
+      setReferidos(refs.data ?? []);
+      setBonos((bon.data ?? []).reduce((a: number, x: any) => a + Number(x.monto_usd ?? 0), 0));
+      setReglas(rul.data ?? null);
+      setSolicitud((req.data ?? [])[0] ?? null);
+    }
     const { data: p } = await sb().from("risk_profiles").select("*").order("id");
     setProfiles(p ?? []);
     // key metadata is not directly readable (no RLS policy) — key_status lives on clients
@@ -181,6 +208,63 @@ export default function ProfilePage() {
         </div>
         <button className="btn secondary" disabled={busy || name === client.name}
           onClick={() => rpcSettings({ p_name: name })}>Guardar nombre</button>
+      </div>
+
+      {client.referral_code && reglas?.activo && (() => {
+        const enlace = `${typeof window !== "undefined" ? window.location.origin : ""}/register?ref=${client.referral_code}`;
+        const activados = referidos.filter((r) => r.activated_at).length;
+        const tope = Number(reglas.tope_usd ?? 0), unit = Number(reglas.bono_usd ?? 0);
+        const pct = tope > 0 ? Math.min(100, (bonos / tope) * 100) : 0;
+        return (
+          <div className="card">
+            <h2>Invita y gana</h2>
+            <p className="note">
+              Gana <b>{fmtUsd(unit)} USD</b> por cada persona que abra su cuenta con tu enlace y empiece a operar,
+              hasta <b>{fmtUsd(tope)} USD</b>. El bono se suma a tu <b>saldo en Kuve</b> y se cobra en la liquidación,
+              igual que cualquier otro importe que Kuve te deba.
+            </p>
+            <div className="field" style={{ marginTop: 10 }}>
+              <input readOnly value={enlace} onFocus={(ev) => ev.currentTarget.select()} />
+            </div>
+            <button className="btn secondary" style={{ marginTop: 8 }}
+              onClick={async () => {
+                try { await navigator.clipboard.writeText(enlace); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }
+                catch { /* sin portapapeles: el campo ya es seleccionable */ }
+              }}>{copiado ? "Enlace copiado" : "Copiar enlace"}</button>
+            <div style={{ marginTop: 14 }}>
+              <div style={{ height: 8, background: "var(--panel)", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)" }} />
+              </div>
+              <p className="note" style={{ marginTop: 6 }}>
+                <b>{fmtUsd(bonos)} USD</b> de {fmtUsd(tope)} · {activados} {activados === 1 ? "invitación activa" : "invitaciones activas"}
+                {referidos.length > activados && ` · ${referidos.length - activados} sin activar todavía`}
+              </p>
+              {referidos.length > activados && (
+                <p className="note">Una invitación se activa cuando esa persona habilita su bot y su cuenta supera el saldo mínimo:
+                  hasta entonces no cuenta, para que el programa premie clientes reales y no cuentas vacías.</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      <div className="card">
+        <h2>Tu informe mensual</h2>
+        <p className="note">Te llega el día 1 de cada mes por Telegram. Si lo necesitas antes, pídelo aquí y te lo reenviamos.</p>
+        {solicitud?.estado === "pendiente" ? (
+          <p className="note"><b>Solicitud recibida.</b> Te llegará por Telegram en breve.</p>
+        ) : (
+          <button className="btn secondary" disabled={pidiendo || !client.telegram_chat_id}
+            onClick={async () => {
+              setPidiendo(true);
+              const { error } = await sb().from("report_requests").insert({ client_id: client.id });
+              setPidiendo(false);
+              if (!error) setSolicitud({ estado: "pendiente" });
+            }}>{pidiendo ? "Enviando…" : "Reenviarme el informe"}</button>
+        )}
+        {!client.telegram_chat_id && (
+          <p className="note">Para recibirlo, primero escribe al bot desde el apartado de arriba: sin tu chat de Telegram no tenemos a dónde enviarlo.</p>
+        )}
       </div>
 
       <div className="card">
