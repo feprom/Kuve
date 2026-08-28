@@ -6,17 +6,10 @@
  * protagonista; la estrategia queda como línea secundaria.
  */
 import TvChart from "@/components/TvChart";
+import { hex } from "@/lib/theme";
 
 export type Series = { label: string; color: string; points: { x: number; y: number }[] };
 
-/** El canvas no resuelve var(): tokens del tema a hex. */
-const HEX: Record<string, string> = {
-  "var(--accent)": "#29a9e1",
-  "var(--strategy)": "#4bb082",
-  "var(--green)": "#35c98e",
-  "var(--red)": "#e05d75",
-};
-const hex = (c: string) => HEX[c] ?? c;
 
 export default function PerfChart({
   series, height = 240, markerX, markerLabel, onScrub,

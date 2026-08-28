@@ -12,7 +12,12 @@
   --green: #35c98e;
   --red: #e05d75;
   --warn: #e0b45d;
-  --strategy: #4bb082;       /* línea "estrategia": subordinada al accent pero legible (4.6:1) */
+  /* Línea "estrategia". Era #4bb082, un VERDE — y el verde ya significa
+     ganancia (--green). Una curva de estrategia verde junto a cifras verdes de
+     ganancia hace que el lector lea la línea como un resultado positivo aunque
+     esté cayendo. Naranja: es el mismo tono con el que el informe pinta el bot,
+     así que estrategia significa lo mismo en los dos canales. */
+  --strategy: #c9822e;
   --nav-h: 62px;
   color-scheme: dark;        /* selects y scrollbars nativos en oscuro */
 }

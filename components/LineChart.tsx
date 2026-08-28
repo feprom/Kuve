@@ -5,13 +5,7 @@
  * (convención de IBKR/Portfolio Visualizer), no una línea suelta.
  */
 import TvChart from "@/components/TvChart";
-
-const HEX: Record<string, string> = {
-  "var(--accent)": "#29a9e1",
-  "var(--red)": "#e05d75",
-  "var(--green)": "#35c98e",
-  "var(--strategy)": "#4bb082",
-};
+import { hex } from "@/lib/theme";
 
 export default function LineChart({
   points, height = 200, color = "var(--accent)", baseline, suffix = "", label = "Serie",
@@ -25,7 +19,7 @@ export default function LineChart({
 }) {
   return (
     <TvChart
-      series={[{ label, color: HEX[color] ?? color, points, area: true, width: 2 }]}
+      series={[{ label, color: hex(color), points, area: true, width: 2 }]}
       height={height} suffix={suffix} baseline={baseline ?? null}
     />
   );
