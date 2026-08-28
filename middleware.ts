@@ -46,6 +46,9 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // excluye estáticos: sin esto cada imagen de /public dispara un getUser()
-  matcher: ["/((?!_next|api|favicon\\.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico|txt|xml)$).*)"],
+  // Excluye estáticos: sin esto cada imagen de /public dispara un getUser().
+  // `webmanifest` está en la lista por una razón comprobada en producción: sin
+  // él, /manifest.webmanifest respondía 307 a /login y el navegador no podía
+  // leerlo, así que la app no se podía instalar en el móvil ni cogía sus iconos.
+  matcher: ["/((?!_next|api|favicon\\.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico|txt|xml|webmanifest)$).*)"],
 };
