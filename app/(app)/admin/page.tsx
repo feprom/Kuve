@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Sparkline from "@/components/Sparkline";
+import PerfChart from "@/components/PerfChart";
 import { attributeIncome, Attribution } from "@/lib/pnl";
 import {
   detectarFlujos, curvaTwr, maxDrawdown, seriePnl, sanearSnaps, ultimoPorDia,
   factorVivo as factorVivoDe, Flujo,
+  compuestaTwr, serieBenchmark,
 } from "@/lib/metrics";
 import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchPositionsLatest } from "@/lib/queries";
 import { eventLabel } from "@/lib/events";
@@ -31,6 +33,10 @@ export default function Admin() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [clients, setClients] = useState<Cli[]>([]);
+  const [bench, setBench] = useState<{ date: string; equity_index: number }[]>([]);
+  const [refs, setRefs] = useState<any[]>([]);
+  const [bonos, setBonos] = useState<any[]>([]);
+  const [solicitudes, setSolicitudes] = useState<any[]>([]);
   const [histByClient, setHistByClient] = useState<Map<string, Snap[]>>(new Map());
   const [attribByClient, setAttribByClient] = useState<Map<string, Attribution | null>>(new Map());
   const [movsByClient, setMovsByClient] = useState<Map<string, Movs>>(new Map());
@@ -101,6 +107,29 @@ export default function Admin() {
         });
         posRaw.set(cli.id, (await fetchPositionsLatest(sb, cli.id)) as unknown as Pos[]);
       }));
+      // Benchmark del perfil MAS COMUN del libro: es contra el que se compara el
+      // compuesto. Con todos los clientes en KV-2 es el suyo; si algun dia hay
+      // varios perfiles, comparar el compuesto contra uno solo dejaria de ser
+      // legitimo y habria que componer tambien el indice.
+      const perfMayoritario = (() => {
+        const cuenta = new Map<number, number>();
+        for (const c of clis) if (c.risk_profile_id) cuenta.set(c.risk_profile_id, (cuenta.get(c.risk_profile_id) ?? 0) + 1);
+        let mejor: number | null = null, n = 0;
+        for (const [k, v] of Array.from(cuenta.entries())) if (v > n) { mejor = k; n = v; }
+        return mejor;
+      })();
+      const [bq, rq, boq, sq] = await Promise.all([
+        perfMayoritario
+          ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", perfMayoritario).order("date")
+          : Promise.resolve({ data: [] as any[] }),
+        sb.from("referrals").select("id, referrer_id, invited_id, activated_at, created_at"),
+        sb.from("client_compensations").select("client_id, monto_usd, estado, tipo").eq("tipo", "bono"),
+        sb.from("report_requests").select("id, client_id, estado, solicitado_en").order("solicitado_en", { ascending: false }).limit(20),
+      ]);
+      setBench((bq as any).data ?? []);
+      setRefs((rq as any).data ?? []);
+      setBonos((boq as any).data ?? []);
+      setSolicitudes((sq as any).data ?? []);
       setHistByClient(byClient);
       setAttribByClient(attrib);
       setMovsByClient(movs);
@@ -253,6 +282,29 @@ export default function Admin() {
     return s ? (Date.now() - new Date(s.ts).getTime()) / 3600e3 : null;
   };
 
+  /* ---- EL LIBRO ENTERO -------------------------------------------------
+     Compuesto ponderado por capital (ver `compuestaTwr`): NO la suma de equity
+     —que sube al captar un cliente sin que la gestion haya hecho nada— ni la
+     media simple de los porcentajes —donde una cuenta de 98 USD pesaria igual
+     que una de 7.400—. */
+  const compuesta = compuestaTwr(clients.map((c) => ({
+    curva: movsByClient.get(c.id)?.curva ?? [],
+    equity: (histByClient.get(c.id) ?? []).map((x: any) => ({ x: new Date(x.ts).getTime(), y: Number(x.equity) })),
+  })).filter((x) => x.curva.length > 1));
+  const compPct = compuesta.length > 1 ? (compuesta[compuesta.length - 1].y - 1) * 100 : null;
+  const compDd = compuesta.length > 1 ? maxDrawdown(compuesta.map((p) => p.y)) : null;
+  const desdeX = compuesta.length ? compuesta[0].x : null;
+  const seriesGlobal = [
+    ...(desdeX != null ? [{ label: "Estrategia", color: "var(--strategy)", points: serieBenchmark(bench as any, desdeX) }] : []),
+    ...(compuesta.length > 1 ? [{ label: "Libro (ponderado)", color: "var(--accent)",
+        points: compuesta.map((p) => ({ x: p.x, y: (p.y - 1) * 100 })) }] : []),
+  ].filter((x) => x.points.length > 1);
+
+  const bonosTotal = bonos.filter((b) => b.estado !== "anulado").reduce((a, b) => a + Number(b.monto_usd ?? 0), 0);
+  const refsActivos = refs.filter((r) => r.activated_at).length;
+  const solPend = solicitudes.filter((x) => x.estado === "pendiente");
+  const nombreDe = (id: string) => clients.find((c) => c.id === id)?.name?.trim() ?? id.slice(0, 8);
+
   return (
     <>
       <div className="pagetitle">Administración
@@ -264,7 +316,63 @@ export default function Admin() {
         <div className="metric"><div className={`v ${pnlClass(pnlTotal)}`}>{fmtUsd(pnlTotal, 0)}</div><div className="l">PnL del bot (clientes activos)</div></div>
         <div className="metric"><div className="v">{active.length}/{clients.length}</div><div className="l">Clientes activos</div></div>
         <div className="metric"><div className="v">${fmtUsd(exposure, 0)}</div><div className="l">Exposición total</div></div>
+        <div className="metric"
+          title="Rendimiento del libro entero, ponderado por el capital de cada cliente y encadenado como un TWR. No es la media de los porcentajes: una cuenta pequeña no pesa igual que una grande.">
+          <div className={`v ${pnlClass(compPct)}`}>{fmtPct(compPct)}</div><div className="l">Rendimiento del libro</div>
+        </div>
+        <div className="metric"><div className={`v ${pnlClass(compDd)}`}>{fmtPct(compDd, 1)}</div><div className="l">Drawdown del libro</div></div>
       </div>
+
+      {seriesGlobal.length > 0 && (
+        <div className="card">
+          <h2>El libro contra la estrategia</h2>
+          <PerfChart series={seriesGlobal} />
+          <p className="note">Azul: el conjunto de las cuentas, ponderado por el capital de cada una y encadenado
+            como un TWR — los aportes y retiros no lo mueven. Verde: la estrategia del perfil mayoritario, bruta.
+            La distancia entre las dos es lo que se llevan los costos y las incidencias.</p>
+        </div>
+      )}
+
+      <div className="metric-row">
+        <div className="metric"><div className="v">{refs.length}</div><div className="l">Invitaciones registradas</div></div>
+        <div className="metric"><div className="v">{refsActivos}</div><div className="l">Invitaciones activas</div></div>
+        <div className="metric"><div className="v">${fmtUsd(bonosTotal, 0)}</div><div className="l">Bonos concedidos</div></div>
+        <div className="metric" title="Reenvíos del informe pedidos por clientes y aún sin atender. Los procesa Kuve-Solicitudes cada hora.">
+          <div className={`v ${solPend.length ? "neg" : ""}`}>{solPend.length}</div><div className="l">Reenvíos pendientes</div>
+        </div>
+      </div>
+
+      {(refs.length > 0 || solicitudes.length > 0) && (
+        <details className="card">
+          <summary><h2 style={{ display: "inline" }}>Referidos y solicitudes</h2></summary>
+          {refs.length > 0 && (
+            <table>
+              <thead><tr><th>Invitó</th><th>Invitado</th><th>Estado</th></tr></thead>
+              <tbody>{refs.map((r) => (
+                <tr key={r.id}>
+                  <td>{nombreDe(r.referrer_id)}</td>
+                  <td>{nombreDe(r.invited_id)}</td>
+                  <td>{r.activated_at
+                    ? <span className="badge on">activa</span>
+                    : <span className="badge neutral">sin activar</span>}</td>
+                </tr>))}
+              </tbody>
+            </table>
+          )}
+          {solicitudes.length > 0 && (
+            <table style={{ marginTop: 12 }}>
+              <thead><tr><th>Cliente</th><th>Pedido</th><th>Estado</th></tr></thead>
+              <tbody>{solicitudes.map((x) => (
+                <tr key={x.id}>
+                  <td>{nombreDe(x.client_id)}</td>
+                  <td>{fmtDate(x.solicitado_en)}</td>
+                  <td><span className={`badge ${x.estado === "enviado" ? "on" : x.estado === "error" ? "off" : "neutral"}`}>{x.estado}</span></td>
+                </tr>))}
+              </tbody>
+            </table>
+          )}
+        </details>
+      )}
 
       <div className="admin-grid">
         {clients.map((c) => {

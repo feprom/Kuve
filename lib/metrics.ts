@@ -875,3 +875,83 @@ export function guardasCuenta(
   }
   return g;
 }
+
+// ---------------------------------------------------------------------------
+// 11. Compuesto: como va el LIBRO ENTERO
+// ---------------------------------------------------------------------------
+/**
+ * Curva time-weighted del conjunto de clientes, PONDERADA POR CAPITAL.
+ *
+ * POR QUE NO SE SUMAN LOS EQUITY. La suma de equity de todos los clientes no es
+ * una curva de rendimiento: sube cuando entra un cliente nuevo y baja cuando uno
+ * retira, sin que la gestion haya hecho nada. Dibujarla como "rendimiento
+ * global" convertiria captar un cliente en un buen mes.
+ *
+ * POR QUE NO SE PROMEDIAN LOS PORCENTAJES A PELO. Un cliente con 98 USD pesaria
+ * lo mismo que uno con 7.400: el "rendimiento del libro" lo decidiria la cuenta
+ * mas pequena.
+ *
+ * LO CORRECTO es el compuesto ponderado por activos, que es como se mide un
+ * composite en GIPS: en cada tramo, el retorno del conjunto es la media de los
+ * retornos de cada cliente ponderada por el capital que cada uno tenia AL INICIO
+ * del tramo. Despues se encadena, igual que un TWR individual.
+ *
+ * Cada cliente entra solo en los tramos en los que ya tenia serie: uno que entra
+ * en agosto no altera lo que el libro hizo en julio.
+ */
+export function compuestaTwr(
+  clientes: { curva: Punto[]; equity: Punto[] }[],
+): Punto[] {
+  const validos = clientes.filter((c) => c.curva.length > 1);
+  if (!validos.length) return [];
+
+  // Rejilla: todos los instantes en los que algun cliente tiene punto.
+  const xs = Array.from(new Set(validos.flatMap((c) => c.curva.map((p) => p.x)))).sort((a, b) => a - b);
+  if (xs.length < 2) return [];
+
+  // Busqueda del ultimo punto <= t, con cursor por cliente: la version ingenua
+  // recorria la curva entera por cada instante y con cinco clientes y ~1.300
+  // barras eso son millones de comparaciones en el navegador.
+  const cur = validos.map(() => ({ ic: 0, ie: 0 }));
+  const avanzar = (pts: Punto[], i: number, t: number) => {
+    while (i + 1 < pts.length && pts[i + 1].x <= t) i++;
+    return i;
+  };
+
+  const out: Punto[] = [{ x: xs[0], y: 1 }];
+  let factor = 1;
+  const prev = validos.map(() => ({ y: null as number | null, w: 0 }));
+
+  for (let k = 0; k < xs.length; k++) {
+    const t = xs[k];
+    let num = 0, den = 0;
+    const ahora: { y: number | null; w: number }[] = [];
+    for (let i = 0; i < validos.length; i++) {
+      const c = validos[i];
+      cur[i].ic = avanzar(c.curva, cur[i].ic, t);
+      cur[i].ie = avanzar(c.equity, cur[i].ie, t);
+      const py = c.curva[cur[i].ic];
+      const pe = c.equity[cur[i].ie];
+      // Antes de su primera barra el cliente no participa: `x > t` significa que
+      // su serie todavia no habia empezado.
+      const dentro = py != null && py.x <= t;
+      const y = dentro ? py.y : null;
+      const w = pe != null && pe.x <= t ? num_(pe.y) : 0;
+      ahora.push({ y, w });
+      const ant = prev[i];
+      if (k > 0 && ant.y != null && y != null && ant.y > 0 && ant.w > 0) {
+        num += ant.w * (y / ant.y - 1);
+        den += ant.w;
+      }
+    }
+    if (k > 0 && den > 0) {
+      const r = num / den;
+      if (Number.isFinite(r) && 1 + r > 0) factor *= 1 + r;
+      out.push({ x: t, y: factor });
+    }
+    for (let i = 0; i < validos.length; i++) prev[i] = ahora[i];
+  }
+  return out;
+}
+
+const num_ = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
