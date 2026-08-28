@@ -1371,8 +1371,17 @@ export type FilaActivo = {
   pctCartera: number | null;
 };
 
-/** Lo minimo que esta funcion necesita de una fila de `client_compensations`. */
-export type CompensacionLike = { concepto?: string | null; monto_usd: number | string };
+/**
+ * Lo minimo que esta funcion necesita de una fila de `client_compensations`.
+ *
+ * `fecha` es la de RECONOCIMIENTO (el dia en que Kuve admitio el pago), NO la
+ * del incidente. Solo la usa `creditosReparacion` (seccion 15) como ultimo
+ * recurso, cuando no se identifico la ventana de parada; ver alli por que ese
+ * es un mal sitio para imputar.
+ */
+export type CompensacionLike = {
+  concepto?: string | null; monto_usd: number | string; fecha?: string | number | null;
+};
 
 /** Redondeo a centimos. El mismo `c2` que usaba informe.ts. */
 const c2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
@@ -1648,4 +1657,186 @@ export function contribucionPorActivo(args: {
     costosLedger, lucroCesanteUsd, capitalBase,
   });
   return { ...t, inception, corte, capitalBase, costosLedger, lucroCesanteUsd };
+}
+
+// ---------------------------------------------------------------------------
+// 15. LA CURVA REPARADA: el rendimiento QUE EL CLIENTE COBRA
+// ---------------------------------------------------------------------------
+/**
+ * VINO DE `reportes/lib/informe.ts`. Vive aqui, y no alli, por la misma razon
+ * que la tabla por activo (secciones 12-14): la app publica esta cifra al lado
+ * del total en dolares y el PDF la publica en su KPI destacado. Si cada lado la
+ * calculara con su propia formula, el cliente veria dos porcentajes del mismo
+ * concepto y no sabria a cual creer. `informe.ts` consume estas funciones.
+ *
+ * QUE ES. El TWR de mercado (`twrDesdeEntrada`) mide lo que hizo la ESTRATEGIA.
+ * No incluye la reparacion que Kuve reconocio por sus propias incidencias, que
+ * es dinero real a favor del cliente. La curva reparada es la misma serie con
+ * esos abonos dentro, y es la unica que se puede poner al lado de un importe en
+ * dolares que ya los incluye: un total con dinero Kuve junto a un % sin el
+ * produce el par contradictorio que costo caro (un "-0,01 % de rendimiento"
+ * junto a "+153,41 de ganancia").
+ *
+ * ROTULACION, la misma que ya usan el PDF y la tarjeta diaria: el de mercado se
+ * rotula "Su cuenta en el mercado" y el reparado "Con la reparacion de Kuve".
+ * Nunca los dos con el mismo rotulo, y el destacado es el reparado.
+ */
+
+/* ---- CADA ABONO EN LA FECHA DE SU INCIDENTE ---------------------------
+   Se reutiliza el mecanismo de `heredadoFills`, que RESTA del numerador de
+   cada tramo: pasando el importe en negativo, lo suma. No hay matematica
+   nueva; lo que cambia es CUANDO entra.
+
+   ANTES entraba en `client_compensations.fecha`, que es la fecha en que Kuve
+   RECONOCIO el pago (27-ago para los cinco clientes). Eso estaba mal, y el
+   propio informe lo demostraba: la serie `limpio` devuelve las perdidas por
+   incidencia EN SU FECHA REAL, mientras que esta las devolvia el 27-ago. El
+   mismo evento, tratado en dos momentos distintos dentro del mismo PDF.
+
+   POR QUE IMPORTA TANTO. Un TWR encadena ratios: el mismo importe vale un
+   porcentaje distinto segun el equity sobre el que cae. Los 192,95 USD de
+   Roberto entrando el 27-ago sobre 5.262,96 valen +3,67 pp; entrando el
+   12-jul y el 18-ago -cuando su cuenta tenia 2.400 y 3.602- valen bastante
+   mas. Fechar la reparacion el dia del papeleo, y no el dia del dano, hacia
+   que el porcentaje publicado no se pareciera al dinero devuelto. Es peor
+   cuanto mas crecio la cuenta entre el incidente y el reconocimiento, y
+   Roberto casi la triplico: por eso salio un +0,02 % junto a +155,56 USD.
+
+   EL REPARTO, sin parsear texto:
+     - CAJA (dinero que salio de la cuenta en cierres desincronizados): son
+       exactamente los fills `falla_tecnica`, con su timestamp. Se devuelven
+       uno a uno, en su hora. Por construccion, esta parte de la curva
+       reparada coincide ahora con `limpio`, que es lo que siempre debio ser.
+     - LUCRO CESANTE (dinero que NO entro con el bot parado): no tiene fill
+       porque no hubo movimiento. Se imputa al INICIO de la parada, que es
+       cuando la cuenta dejo de seguir al indice.
+   Si no hay parada identificada, esa parte cae de vuelta en la fecha de
+   reconocimiento: es peor, pero no se pierde. */
+
+/** Un abono de reparacion, con la MISMA forma que un `HeredadoFill`: `usd < 0`
+ *  porque `curvaTwr` resta la lista del numerador de cada tramo. */
+export type CreditoReparacion = HeredadoFill;
+
+export function creditosReparacion(args: {
+  /** `clasificar(...).fills` DESDE LA ENTRADA hasta el corte. */
+  fills: Fill[];
+  /** Compensaciones VIVAS (`tipo='compensacion'`, `estado <> 'anulado'`).
+   *  Los BONOS no entran: no reparan nada, ver `reportes/lib/db.ts::bonos`. */
+  compsVivas: CompensacionLike[];
+  /** `interrupcionesEntre(...)` en la misma ventana. Sin esto no se sabe EN
+   *  QUE FECHA imputar el lucro cesante. */
+  interrupciones: Interrupcion[];
+}): {
+  creditos: CreditoReparacion[]; avisos: Guarda[];
+  compTotal: number; cajaPorFills: number; lucroPendiente: number;
+  /** Inicio de la parada mas cara, o null si no se identifico ninguna. */
+  inicioParada: number | null;
+} {
+  const avisos: Guarda[] = [];
+  const { compsVivas, interrupciones: inter } = args;
+  const compTotal = compsVivas.reduce((a, k) => a + num(k.monto_usd), 0);
+  const fillsFallaTecnica = (args.fills ?? [])
+    .filter((f) => f.clase === "falla_tecnica" && num(f.usd) < 0)
+    .map((f) => ({ ts: f.ts, usd: num(f.usd) }));   // usd<0: curvaTwr lo devuelve
+  const cajaPorFills = -fillsFallaTecnica.reduce((a, f) => a + f.usd, 0);
+  // El resto es lucro cesante. Nunca negativo: si los fills superaran al total
+  // reconocido, se imputa todo por fills y no se inventa un cargo.
+  const lucroPendiente = Math.max(0, compTotal - cajaPorFills);
+  const inicioParada = inter.length
+    ? inter.slice().sort((a, b) => (b.costeUsd ?? 0) - (a.costeUsd ?? 0))[0].desde
+    : null;
+  const creditos: CreditoReparacion[] = !compsVivas.length ? [] : [
+    ...fillsFallaTecnica,
+    ...(lucroPendiente > 0.005
+      ? [{ ts: new Date(inicioParada ?? Date.parse(String(compsVivas[0].fecha) + "T00:00:00Z")).toISOString(),
+           usd: -lucroPendiente }]
+      : []),
+  ];
+  if (compsVivas.length && !inicioParada && lucroPendiente > 0.005) {
+    avisos.push({ nivel: "atencion", texto:
+      "No se identifico la ventana de parada: el lucro cesante (" + lucroPendiente.toFixed(2) +
+      " USD) se imputa en la fecha de reconocimiento y su efecto en % queda subestimado." });
+  }
+  return { creditos, avisos, compTotal, cajaPorFills, lucroPendiente, inicioParada };
+}
+
+/**
+ * La curva CON la reparacion dentro. Indice base 1, EXACTAMENTE igual que
+ * `curvaTwr`: se puede pasar a `twrEntre`, `serieDrawdown` o convertir a % sin
+ * ninguna conversion previa, y sin creditos devuelve la misma curva de mercado
+ * (no una curva "parecida" recalculada por otro camino).
+ */
+export function curvaReparada(
+  snaps: SnapLike[], flujos: Flujo[],
+  heredadoFills: HeredadoFill[], creditos: CreditoReparacion[],
+): Punto[] {
+  return creditos.length
+    ? curvaTwr(snaps, flujos, [...heredadoFills, ...creditos])
+    : curvaTwr(snaps, flujos, heredadoFills);
+}
+
+/**
+ * PUNTO DE ENTRADA DE LA APP, hermano de `contribucionPorActivo`: a partir de
+ * lo que el navegador ya baja de PostgREST devuelve las DOS cifras rotulables y
+ * la curva reparada. La pantalla no encadena, no reparte y no redondea nada.
+ *
+ * EL CORTE es `min(ahora, ultimaVelaCerrada())`, el mismo de `resumenCuenta`,
+ * `contribucionPorActivo` y el del informe cuando la ventana es el mes en
+ * curso. Sin esa igualdad la app contaria fills que la curva no refleja.
+ *
+ * `reportes/lib/informe.ts` no llama a esta funcion -ya trae `clasificar` e
+ * `interrupcionesEntre` calculados porque los publica en otras secciones- pero
+ * llama a `creditosReparacion` y `curvaReparada` con los MISMOS argumentos. La
+ * sonda `reportes/bin/probe_app_vs_informe_total.ts` corre las dos rutas sobre
+ * los clientes reales y compara el total en dolares y el % con reparacion.
+ */
+export function rendimientoConReparacion(args: {
+  snaps: SnapLike[];
+  ledger: RowAtr[];
+  trades: TradeAtr[];
+  ordenes: OrdenAtr[];
+  /** Solo hacen falta los `kind` de `EVENT_KINDS_ATRIBUCION` (+ el stop). */
+  eventos: EventoAtr[];
+  /** `tipo = 'compensacion'` y `estado <> 'anulado'`. */
+  comps: CompensacionLike[];
+  bench: BenchLike[];
+  /** De `attributeIncome`: cierres de posiciones previas al bot. */
+  heredadoFills: HeredadoFill[];
+  ahora?: number;
+}): {
+  inception: number; corte: number;
+  curva: Punto[]; curvaReparada: Punto[];
+  /** "Su cuenta en el mercado": SIN la reparacion. El de siempre. */
+  twrMercadoDesdeEntrada: number | null;
+  /** "Con la reparacion de Kuve": el que publica el PDF y la tarjeta diaria. */
+  twrConReparacionDesdeEntrada: number | null;
+  /** El mismo `ytdPct` del informe, sobre la curva reparada. */
+  ytdConReparacion: number | null;
+  creditos: CreditoReparacion[]; avisos: Guarda[];
+  compTotal: number; cajaPorFills: number; lucroPendiente: number;
+} | null {
+  const s = sanearSnaps(args.snaps);
+  const inception = inceptionTs(s);
+  if (!s.length || inception == null) return null;
+
+  const corte = Math.min(args.ahora ?? Date.now(), ultimaVelaCerrada());
+  const flujos = detectarFlujos(s, args.ledger as unknown as IncomeLike[]);
+  const curva = curvaTwr(s, flujos, args.heredadoFills);
+
+  const clases = clasificar(args.ledger, args.trades, args.ordenes, args.eventos, inception, corte);
+  const inter = interrupcionesEntre(s, curva, args.bench, inception, corte);
+  const r = creditosReparacion({
+    fills: clases.fills ?? [], compsVivas: args.comps, interrupciones: inter,
+  });
+  const rep = curvaReparada(s, flujos, args.heredadoFills, r.creditos);
+
+  const ene1 = Date.UTC(new Date(corte).getUTCFullYear(), 0, 1);
+  return {
+    inception, corte, curva, curvaReparada: rep,
+    twrMercadoDesdeEntrada: twrEntre(curva, inception, corte),
+    twrConReparacionDesdeEntrada: twrEntre(rep, inception, corte),
+    ytdConReparacion: twrEntre(rep, Math.max(ene1, inception), corte),
+    creditos: r.creditos, avisos: r.avisos,
+    compTotal: r.compTotal, cajaPorFills: r.cajaPorFills, lucroPendiente: r.lucroPendiente,
+  };
 }

@@ -4,9 +4,19 @@
  * el admin al entrar a un cliente. Recibe el registro del cliente y carga todo
  * lo demás por client_id.
  *
- * Jerarquía: arriba lo importante (equity, PnL del bot, no realizado, drawdown
- * del bot); en "Detalle de costos y cuenta" lo secundario (realizado, mercado,
- * comisiones, funding, heredado, exposición, margen, apalancamiento, trades).
+ * Jerarquía: arriba del todo el TOTAL A FAVOR del cliente (saldo en Binance +
+ * saldo en Kuve), y justo debajo sus dos partes rotuladas — el equity de
+ * Binance tiene que seguir viéndose y cuadrando con su extracto, que es lo que
+ * el informe declara que prevalece. Después el no realizado y el drawdown; en
+ * "Detalle de costos y cuenta" lo secundario (realizado, mercado, comisiones,
+ * funding, heredado, exposición, margen, apalancamiento, trades).
+ *
+ * EL PORCENTAJE QUE ACOMPAÑA AL TOTAL es el de la CURVA REPARADA
+ * (`metrics.rendimientoConReparacion`), no el TWR de mercado: el total en
+ * dólares ya incluye el dinero de Kuve, y ponerle al lado un porcentaje que no
+ * lo incluye reproduce el par contradictorio que el dueño llamó "muy confuso".
+ * Los dos rótulos son los MISMOS del informe mensual y la tarjeta diaria:
+ * "en el mercado" y "con la reparación de Kuve"; nunca dos veces "total".
  *
  * Consistencia: el PnL total (bot), la curva azul del gráfico y el drawdown
  * salen TODOS de la misma serie: equity(t) − capital aportado hasta t − cierres
@@ -31,8 +41,10 @@ import { computeLevels, Levels, STRATEGY_PARAMS } from "@/lib/levels";
 import { attributeIncome, Attribution, IncomeRow, esApertura } from "@/lib/pnl";
 import {
   detectarFlujos, seriePnl, curvaTwr, maxDrawdown, serieBenchmark, sanearSnaps,
-  factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf, resumenCuenta, guardasCuenta } from "@/lib/metrics";
-import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchEvents, fetchCompensaciones } from "@/lib/queries";
+  factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf, resumenCuenta, guardasCuenta,
+  rendimientoConReparacion } from "@/lib/metrics";
+import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchEvents, fetchCompensaciones,
+  fetchEventosAtribucion, fetchCompensacionesVivas } from "@/lib/queries";
 import type { EventRow } from "@/lib/events";
 
 type Snap = {
@@ -69,6 +81,16 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const [eventos, setEventos] = useState<EventRow[]>([]);
   /** Compensaciones reconocidas y pendientes de liquidar: el "saldo en Kuve". */
   const [compensaciones, setCompensaciones] = useState<{ monto_usd: number }[]>([]);
+  /**
+   * Entradas de la CURVA REPARADA (metrics.ts seccion 15), el porcentaje que
+   * acompana al total con dinero Kuve. `clasificar` necesita los EVENTOS del
+   * bot desde la primera barra —no los ultimos 60 del feed— y las
+   * compensaciones VIVAS (no solo las pendientes), que son exactamente las
+   * filas que ve el informe. Las mismas dos consultas que ya hace /performance.
+   */
+  const [ordenes, setOrdenes] = useState<any[]>([]);
+  const [eventosAtr, setEventosAtr] = useState<any[]>([]);
+  const [compsVivas, setCompsVivas] = useState<any[]>([]);
   const tuyo = esAdmin ? "del cliente" : "tuyo";
 
   useEffect(() => {
@@ -82,7 +104,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         // serie pierde su inception en silencio (el TWR arrancaría tarde)
         const snapRows = sanearSnaps((await fetchSnaps(sb, client.id)) as unknown as Snap[]);
         const latest = snapRows[snapRows.length - 1];
-        const [b, sig, t, p, inc, ord, ev, comp] = await Promise.all([
+        const [b, sig, t, p, inc, ord, ev, comp, evAtr, compV] = await Promise.all([
           client.risk_profile_id
             ? sb.from("strategy_benchmark").select("date, equity_index").eq("profile_id", client.risk_profile_id).order("date", { ascending: true })
             : Promise.resolve({ data: [] as any[] }),
@@ -98,6 +120,8 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
           fetchOrdersFilled(sb, client.id).then((data) => ({ data })),
           fetchEvents(sb, client.id, 60),
           fetchCompensaciones(sb, client.id),
+          snapRows[0]?.ts ? fetchEventosAtribucion(sb, client.id, snapRows[0].ts) : Promise.resolve([]),
+          fetchCompensacionesVivas(sb, client.id),
         ]);
         if (!alive) return;
         setSnaps(snapRows);
@@ -114,6 +138,9 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         setLedger(incRows);
         setIncome(attributeIncome(incRows, ((t as any).data ?? []), ((ord as any).data ?? [])));
         setEventos(((ev as any).data ?? []) as EventRow[]);
+        setOrdenes(((ord as any).data ?? []) as any[]);
+        setEventosAtr((evAtr ?? []) as any[]);
+        setCompsVivas((((compV as any).data ?? []) as any[]));
         setErr(null);
       } catch (e) {
         if (alive) setErr(e instanceof Error ? e.message : String(e));
@@ -178,8 +205,14 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     const heredadoFills = income?.heredadoFills ?? [];
     const botSeries = seriePnl(snaps, flujos, heredadoFills);
     const curva = curvaTwr(snaps, flujos, heredadoFills);
-    return { flujos, heredadoFills, botSeries, curva };
-  }, [snaps, ledger, income]);
+    // LA CURVA REPARADA, de la MISMA funcion que consume reportes/lib/informe.ts.
+    // La app no la recalcula: si lo hiciera, divergiria del PDF.
+    const rep = !snaps.length || !income ? null : rendimientoConReparacion({
+      snaps, ledger, trades: trades as any, ordenes, eventos: eventosAtr,
+      comps: compsVivas, bench, heredadoFills,
+    });
+    return { flujos, heredadoFills, botSeries, curva, rep };
+  }, [snaps, ledger, income, trades, ordenes, eventosAtr, compsVivas, bench]);
 
   if (loading) return (
     <>
@@ -206,9 +239,18 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
 
   // Movimientos de capital: el ledger de Binance (TRANSFER) manda; el salto de
   // equity no explicado es la red de seguridad si el ledger viniera atrasado.
-  const { flujos, heredadoFills, botSeries, curva } = met;
+  const { flujos, heredadoFills, botSeries, curva, rep } = met;
   const capitalHoy = botSeries[botSeries.length - 1]?.base ?? 0;
-  const pnlAbs = botSeries.length ? botSeries[botSeries.length - 1].pnl : null;
+  /**
+   * LA MISMA LLAMADA QUE EL INFORME (`capital.resultadoBot`): `pnlEntre` desde
+   * la entrada hasta la ULTIMA VELA CERRADA. Antes se tomaba el ultimo punto de
+   * la serie, que arrastra el PnL ya existente en la primera barra y llega a
+   * una vela que el informe todavia no cuenta: en Denise eran 1,37 USD de
+   * diferencia con el PDF sobre el mismo concepto. El tramo vivo se suma
+   * despues (`adjVivo`) y va rotulado como tal.
+   */
+  const pnlAbs = rep ? pnlEntre(botSeries, rep.inception, rep.corte)
+    : (botSeries.length ? botSeries[botSeries.length - 1].pnl : null);
 
   // ---- EN VIVO (15 s): un solo dato para métricas, tabla y composición ----
   const enVivo = Object.keys(live).length > 0;
@@ -229,6 +271,21 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const saldoKuve = compensaciones.reduce((a, k) => a + Number(k.monto_usd ?? 0), 0);
   const saldoTotal = equityShow + saldoKuve;
   const pnlShow = pnlAbs == null ? null : pnlAbs + adjVivo;
+  /**
+   * EL PAR QUE VA JUNTO AL TOTAL. Si el titular sube a `saldoTotal` (que ya
+   * lleva el dinero Kuve) y el porcentaje de al lado siguiera siendo el TWR de
+   * MERCADO, el cliente veria otra vez una cifra en dolares y un porcentaje que
+   * no se corresponden — el caso "-0,01 % de rendimiento" junto a "+153,41 de
+   * ganancia". Asi que el % que acompana al total es el de la CURVA REPARADA,
+   * el mismo que publican el informe mensual (KPI "Con la reparacion de Kuve")
+   * y la tarjeta diaria, calculado por `metrics.rendimientoConReparacion`.
+   *
+   * El importe usa `saldoKuve` —la cifra que el cliente ve en la caja de al
+   * lado— y no el total de compensaciones vivas del informe: hoy son la misma
+   * (las cinco cuentas tienen todo en `pendiente` y ningun bono) y la sonda
+   * `probe_app_vs_informe_total.ts` lo comprueba cliente a cliente.
+   */
+  const pnlConReparacion = pnlShow == null ? null : pnlShow + saldoKuve;
   const cuentaAbs = capitalHoy ? equityShow - capitalHoy : null;
   const upnlShow = enVivo ? upnlLiveTot : snap.unrealized_pnl;
   // el tramo en vivo se encadena al índice vía lib/metrics: neutraliza un
@@ -245,6 +302,11 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
     comisionFills: income?.comisionFills, fundingFills: income?.fundingFills,
   });
   const totalPctShow = res.twrDesdeEntrada;
+  const pctConReparacion = rep?.twrConReparacionDesdeEntrada ?? null;
+  // Solo se publican las dos cifras cuando de verdad son distintas: sin
+  // reparacion, "en el mercado" y "con la reparacion" son el mismo numero y
+  // repetirlo con dos rotulos invita a buscar una diferencia que no existe.
+  const hayReparacion = saldoKuve > 0.005 || (rep?.creditos.length ?? 0) > 0;
   const ddBot = res.ddMax;
   /**
    * GUARDAS. El informe se niega a emitir si una identidad no cuadra; la app
@@ -394,19 +456,39 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
       {/* ============ LO IMPORTANTE: UN heroe, el resto subordinado ============ */}
       <div className="metric-row">
         <div className="metric hero">
-          <div className="l">Equity{enVivo ? " · en vivo" : ""}</div>
+          <div className="l">Total a tu favor{enVivo ? " · en vivo" : ""}</div>
           <div className="v" aria-live="polite">
-            <span key={Math.round(equityShow * 100)} className={enVivo ? "tick" : undefined}>${fmtUsd(equityShow)}</span>
+            <span key={Math.round(saldoTotal * 100)} className={enVivo ? "tick" : undefined}>${fmtUsd(saldoTotal)}</span>
           </div>
           <div className="sub">
+            {hayReparacion && (
+              <span className="note">Binance ${fmtUsd(equityShow)} + Kuve ${fmtUsd(saldoKuve)}</span>
+            )}
             <span className={pnlClass(pnlHoy)}><b>{fmtUsd(pnlHoy)}</b> ({fmtPct(pctHoy)}) hoy</span>
-            <span className={pnlClass(pnlShow)}
-              title="PnL y rendimiento time-weighted del bot desde tu entrada: los depósitos y retiros no cuentan como ganancia ni como pérdida.">
-              <b>{fmtUsd(pnlShow)}</b> ({bloqueado ? "—" : fmtPct(totalPctShow)}) total
-              {res.twrVivo != null && Math.abs(res.twrVivo - (totalPctShow ?? 0)) >= 0.005 && (
-                <span className="note" style={{ marginLeft: 6 }}>· {fmtPct(res.twrVivo)} en vivo</span>
-              )}
-            </span>
+            {hayReparacion ? (
+              <>
+                {/* Los MISMOS dos rótulos que el informe mensual imprime en sus
+                    KPIs y que la tarjeta diaria publica: nunca dos veces "total".
+                    El destacado es el reparado, que es el que acompaña al total
+                    en dólares de arriba. */}
+                <span className={pnlClass(pnlConReparacion)}
+                  title="Lo que llevas ganado contando la reparación que Kuve te reconoció por sus propias incidencias, imputada en la fecha de cada incidente. Es la misma cifra que el informe mensual y la tarjeta diaria.">
+                  <b>{fmtUsd(pnlConReparacion)}</b> ({bloqueado ? "—" : fmtPct(pctConReparacion)}) con la reparación de Kuve
+                </span>
+                <span className="note"
+                  title="Lo que hizo la estrategia en el mercado, sin la reparación. Rendimiento time-weighted: los depósitos y retiros no cuentan como ganancia ni como pérdida.">
+                  <b>{fmtUsd(pnlShow)}</b> ({bloqueado ? "—" : fmtPct(totalPctShow)}) en el mercado
+                </span>
+              </>
+            ) : (
+              <span className={pnlClass(pnlShow)}
+                title="PnL y rendimiento time-weighted del bot desde tu entrada: los depósitos y retiros no cuentan como ganancia ni como pérdida.">
+                <b>{fmtUsd(pnlShow)}</b> ({bloqueado ? "—" : fmtPct(totalPctShow)}) total
+                {res.twrVivo != null && Math.abs(res.twrVivo - (totalPctShow ?? 0)) >= 0.005 && (
+                  <span className="note" style={{ marginLeft: 6 }}>· {fmtPct(res.twrVivo)} en vivo</span>
+                )}
+              </span>
+            )}
           </div>
         </div>
         <div className="metric"><div className={`v ${pnlClass(upnlShow)}`}>{fmtUsd(upnlShow)}</div><div className="l">No realizado (posiciones)</div></div>
@@ -416,23 +498,27 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         </div>
       </div>
 
-      {saldoKuve > 0.005 && (
-        <div className="metric-row" style={{ marginTop: -6 }}>
-          <div className="metric">
-            <div className="v">${fmtUsd(equityShow)}</div>
-            <div className="l">Saldo en Binance</div>
-          </div>
-          <div className="metric"
-            title="Compensaciones que Kuve te ha reconocido y aún no ha transferido. No están en tu cuenta de Binance: se liquidan el 31/12/2026 contra las comisiones por ganancias.">
-            <div className="v">${fmtUsd(saldoKuve)}</div>
-            <div className="l">Saldo en Kuve · pendiente</div>
-          </div>
-          <div className="metric" style={{ outline: "1px solid var(--accent)", outlineOffset: -1 }}>
-            <div className="v" style={{ color: "var(--accent)" }}>${fmtUsd(saldoTotal)}</div>
-            <div className="l">Total a tu favor</div>
-          </div>
+      {/* LAS DOS PARTES DEL TOTAL, SIEMPRE VISIBLES Y ROTULADAS. El titular es
+          el total (lo que el cliente tiene a su favor), pero el equity de
+          Binance tiene que seguir viéndose y cuadrando al céntimo con su
+          extracto, que es lo que el informe declara que prevalece. Misma
+          identidad que publica la tarjeta diaria: Binance + Kuve = Total. */}
+      <div className="metric-row" style={{ marginTop: -6 }}>
+        <div className="metric"
+          title="Tu equity real en Binance, el que puedes contrastar con tu extracto. El dinero pendiente de Kuve NO está aquí dentro.">
+          <div className="v">${fmtUsd(equityShow)}</div>
+          <div className="l">Saldo en Binance</div>
         </div>
-      )}
+        <div className="metric"
+          title="Compensaciones que Kuve te ha reconocido y aún no ha transferido. No están en tu cuenta de Binance: se liquidan el 31/12/2026 contra las comisiones por ganancias.">
+          <div className="v">${fmtUsd(saldoKuve)}</div>
+          <div className="l">Saldo en Kuve · pendiente</div>
+        </div>
+        <div className="metric" style={{ outline: "1px solid var(--accent)", outlineOffset: -1 }}>
+          <div className="v" style={{ color: "var(--accent)" }}>${fmtUsd(saldoTotal)}</div>
+          <div className="l">Total a tu favor</div>
+        </div>
+      </div>
 
       {/* ============ SEGUNDO PLANO ============ */}
       <details className="card" style={{ marginBottom: 14 }}>
