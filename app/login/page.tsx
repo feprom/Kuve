@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { mensajeAuth } from "@/lib/authErrors";
 import Logo from "@/components/Logo";
 
 export default function Login() {
@@ -17,7 +18,7 @@ export default function Login() {
     setBusy(true); setError(null);
     const sb = supabaseBrowser();
     const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) { setError(error.message); setBusy(false); return; }
+    if (error) { setError(mensajeAuth(error)); setBusy(false); return; }
     router.push("/dashboard"); router.refresh();
   }
 
@@ -36,6 +37,8 @@ export default function Login() {
         <button className="btn" disabled={busy}>{busy ? "Entrando…" : "Entrar"}</button>
         <p className="note" style={{ textAlign: "center" }}>
           ¿Sin cuenta? <Link href="/register">Regístrate</Link>
+          <br />
+          <Link href="/forgot">He olvidado mi contraseña</Link>
         </p>
       </form>
     </div>

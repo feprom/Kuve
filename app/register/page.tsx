@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { mensajeAuth } from "@/lib/authErrors";
 import Logo from "@/components/Logo";
 
 export default function Register() {
@@ -27,7 +28,7 @@ export default function Register() {
     const { error } = await sb.auth.signUp({
       email, password, options: { data: { name } },
     });
-    if (error) { setError(error.message); setBusy(false); return; }
+    if (error) { setError(mensajeAuth(error)); setBusy(false); return; }
     setDone(true);
   }
 

@@ -1,7 +1,16 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/register"];
+// Rutas de INVITADO: se ven sin sesion, y a quien ya entro se le manda al
+// dashboard.
+const PUBLIC_PATHS = ["/login", "/register", "/forgot"];
+
+// Rutas ABIERTAS: valen con sesion y sin ella, y el middleware no las toca.
+// `/reset` TIENE que estar aqui y no en PUBLIC_PATHS: el enlace del correo de
+// recuperacion ABRE SESION antes de llegar, asi que la regla "con sesion ->
+// dashboard" rebotaria al cliente justo antes de dejarle escribir la contrasena
+// nueva, y la recuperacion no funcionaria nunca.
+const OPEN_PATHS = ["/reset"];
 
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
@@ -30,6 +39,7 @@ export async function middleware(req: NextRequest) {
     res.cookies.getAll().forEach((c) => r.cookies.set(c));
     return r;
   };
+  if (OPEN_PATHS.some((p) => req.nextUrl.pathname.startsWith(p))) return res;
   if (!user && !isPublic) return redirect("/login");
   if (user && isPublic) return redirect("/dashboard");
   return res;
