@@ -24,10 +24,21 @@ export type TvSerie = {
   width?: 1 | 2 | 3;
 };
 
-const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`;
+/**
+ * Este archivo era el UNICO punto de todo el sistema que emitia guion ASCII y
+ * punto decimal: `toFixed` devuelve "-1.23" y `toLocaleString("en-US")` devuelve
+ * "1,234". Y sale en cada eje, cada leyenda y cada crosshair de todos los
+ * charts, junto a cifras que el resto de la app imprime como "−1,23" y "1.234".
+ * El mismo numero con dos ortografias en la misma pantalla.
+ */
+const MENOS = "−";
+const fmtPct = (v: number) => {
+  const r = Number(v.toFixed(2));
+  return `${r > 0 ? "+" : r < 0 ? MENOS : ""}${Math.abs(r).toFixed(2).replace(".", ",")}%`;
+};
 const fmtNum = (v: number) =>
-  Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 0 })
-    : v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  (Math.abs(v) >= 1000 ? v.toLocaleString("es-ES", { maximumFractionDigits: 0 })
+    : v.toLocaleString("es-ES", { maximumFractionDigits: 2 })).replace("-", MENOS);
 
 export default function TvChart({
   series, height = 240, suffix = "%", markerX, markerLabel, baseline = 0, gapMs = 6 * 3600e3, onScrub,

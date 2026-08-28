@@ -31,7 +31,7 @@ import { computeLevels, Levels, STRATEGY_PARAMS } from "@/lib/levels";
 import { attributeIncome, Attribution, IncomeRow, esApertura } from "@/lib/pnl";
 import {
   detectarFlujos, seriePnl, curvaTwr, maxDrawdown, serieBenchmark, sanearSnaps,
-  factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf, resumenCuenta } from "@/lib/metrics";
+  factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf, resumenCuenta, guardasCuenta } from "@/lib/metrics";
 import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchEvents, fetchCompensaciones } from "@/lib/queries";
 import type { EventRow } from "@/lib/events";
 
@@ -246,6 +246,13 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   });
   const totalPctShow = res.twrDesdeEntrada;
   const ddBot = res.ddMax;
+  /**
+   * GUARDAS. El informe se niega a emitir si una identidad no cuadra; la app
+   * pintaba el numero igual. Una pantalla con una cifra mala destruye la
+   * confianza en TODAS las demas, porque el cliente no sabe cual estaba mal.
+   */
+  const guardas = guardasCuenta(snaps, flujos, heredadoFills, { ledgerHasta: income?.hasta });
+  const bloqueado = guardas.some((g) => g.nivel === "aborta");
 
   const leverage = equityShow ? expLive / equityShow : null;
   const freeUsdt = Math.max(0, equityShow - (snap.margin_used ?? 0));
@@ -374,6 +381,16 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         );
       })()}
 
+      {guardas.length > 0 && (
+        <div className="card" style={{ borderColor: bloqueado ? "var(--red)" : "var(--warn)" }}>
+          <h2 style={{ color: bloqueado ? "var(--red)" : "var(--warn)" }}>
+            {bloqueado ? "No podemos mostrar tu rendimiento ahora" : "Aviso sobre estas cifras"}
+          </h2>
+          {guardas.map((g, k) => <p key={k} className="note">{g.texto}</p>)}
+          {bloqueado && <p className="note">Preferimos no mostrarte un número antes que mostrarte uno que no cuadra. Ya estamos revisándolo.</p>}
+        </div>
+      )}
+
       {/* ============ LO IMPORTANTE: UN heroe, el resto subordinado ============ */}
       <div className="metric-row">
         <div className="metric hero">
@@ -385,7 +402,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
             <span className={pnlClass(pnlHoy)}><b>{fmtUsd(pnlHoy)}</b> ({fmtPct(pctHoy)}) hoy</span>
             <span className={pnlClass(pnlShow)}
               title="PnL y rendimiento time-weighted del bot desde tu entrada: los depósitos y retiros no cuentan como ganancia ni como pérdida.">
-              <b>{fmtUsd(pnlShow)}</b> ({fmtPct(totalPctShow)}) total
+              <b>{fmtUsd(pnlShow)}</b> ({bloqueado ? "—" : fmtPct(totalPctShow)}) total
               {res.twrVivo != null && Math.abs(res.twrVivo - (totalPctShow ?? 0)) >= 0.005 && (
                 <span className="note" style={{ marginLeft: 6 }}>· {fmtPct(res.twrVivo)} en vivo</span>
               )}
@@ -395,7 +412,7 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
         <div className="metric"><div className={`v ${pnlClass(upnlShow)}`}>{fmtUsd(upnlShow)}</div><div className="l">No realizado (posiciones)</div></div>
         <div className="metric"
           title="La mayor caída desde el punto más alto que tocó la cuenta (no desde el capital inicial). Puede ser mayor que el PnL total: la cuenta primero subió a un pico y luego bajó.">
-          <div className={`v ${pnlClass(ddBot)}`}>{fmtPct(ddBot, 1)}</div><div className="l">Drawdown máx. (desde el pico)</div>
+          <div className={`v ${bloqueado ? "" : pnlClass(ddBot)}`}>{bloqueado ? "—" : fmtPct(ddBot, 1)}</div><div className="l">Drawdown máx. (desde el pico)</div>
         </div>
       </div>
 

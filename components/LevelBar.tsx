@@ -7,8 +7,8 @@ import { useId } from "react";
  *  verde, con su valor). La marca vertical es la entrada. Punto pegado a la
  *  izquierda = salida inminente; `breached` = el SL ya fue cruzado (punto rojo). */
 const fmtN = (v: number) =>
-  v >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 0 })
-    : v >= 10 ? v.toFixed(2) : v.toFixed(4);
+  v >= 1000 ? v.toLocaleString("es-ES", { maximumFractionDigits: 0 })
+    : (v >= 10 ? v.toFixed(2) : v.toFixed(4)).replace(".", ",");
 
 export default function LevelBar({ sl, best, price, entry, breached = false }: {
   sl: number; best: number; price: number; entry: number; breached?: boolean;

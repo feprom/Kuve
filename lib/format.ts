@@ -6,14 +6,20 @@ const ok = (v: unknown): v is number => typeof v === "number" && Number.isFinite
 /** Guion "-" -> menos tipografico U+2212: mismo ancho que "+", no baila. */
 const MENOS = "−";
 
+/**
+ * Locale ES: punto de miles, coma decimal. Estaba en "en-US", asi que el MISMO
+ * importe salia `1,234.56` en la app y `1.234,56` en el informe del mismo dia,
+ * para un cliente hispanohablante. No es una adaptacion al medio: es un error
+ * de idioma en la mitad del producto.
+ */
 export const fmtUsd = (v: number | null | undefined, dp = 2) =>
-  !ok(v) ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })
+  !ok(v) ? "—" : v.toLocaleString("es-ES", { minimumFractionDigits: dp, maximumFractionDigits: dp })
     .replace("-", MENOS);
 
 export const fmtPct = (v: number | null | undefined, dp = 2) => {
   if (!ok(v)) return "—";
   const r = Number(v.toFixed(dp)); // evita "-0.00%" y "+" sobre cero negativo
-  return `${r > 0 ? "+" : r < 0 ? MENOS : ""}${Math.abs(r).toFixed(dp)}%`;
+  return `${r > 0 ? "+" : r < 0 ? MENOS : ""}${Math.abs(r).toFixed(dp).replace(".", ",")}%`;
 };
 
 /** Fecha corta en hora LOCAL del navegador (para el usuario final). */

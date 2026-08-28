@@ -7,7 +7,7 @@ import PerfChart from "@/components/PerfChart";
 import { attributeIncome, Attribution, IncomeRow } from "@/lib/pnl";
 import {
   detectarFlujos, curvaTwr, serieBenchmark, benchmarkEnVentana, sanearSnaps,
-  serieDrawdown, maxDrawdownTwr, twr, resumenCuenta } from "@/lib/metrics";
+  serieDrawdown, maxDrawdownTwr, twr, resumenCuenta, guardasCuenta } from "@/lib/metrics";
 import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled } from "@/lib/queries";
 
 type Snap = { ts: string; bar_time: string; equity: number; unrealized_pnl: number; dd_pct: number; realized_cum: number; start_equity: number; n_trades: number };
@@ -106,6 +106,8 @@ export default function Performance() {
   // calculaba lo suyo y publicaban dos "rendimiento desde tu entrada" distintos.
   const res = resumenCuenta(snaps, flujos, heredadoFills, bench,
     { comisionFills: attrib?.comisionFills, fundingFills: attrib?.fundingFills });
+  const guardas = guardasCuenta(snaps, flujos, heredadoFills, { ledgerHasta: attrib?.hasta });
+  const bloqueado = guardas.some((g) => g.nivel === "aborta");
   const totalPct = res.twrDesdeEntrada;
   const ddMax = res.ddMax;
   // Contra el indice NETO del arrastre real de esta cuenta: el bruto no descuenta
@@ -115,6 +117,14 @@ export default function Performance() {
   return (
     <>
       <div className="pagetitle">Rendimiento</div>
+      {guardas.length > 0 && (
+        <div className="card" style={{ borderColor: bloqueado ? "var(--red)" : "var(--warn)" }}>
+          <h2 style={{ color: bloqueado ? "var(--red)" : "var(--warn)" }}>
+            {bloqueado ? "No podemos mostrar tu rendimiento ahora" : "Aviso sobre estas cifras"}
+          </h2>
+          {guardas.map((g, k) => <p key={k} className="note">{g.texto}</p>)}
+        </div>
+      )}
       {!last && series.length === 0 ? (
         <div className="card"><p className="note">Aún no hay historial. Vuelve cuando el bot lleve unas horas operando.</p></div>
       ) : (
@@ -122,14 +132,14 @@ export default function Performance() {
           <div className="metric-row">
             <div className="metric"
               title="Rendimiento time-weighted desde tu primera vela: mide la gestión. Los depósitos y retiros no cuentan como ganancia ni como pérdida.">
-              <div className={`v ${pnlClass(totalPct)}`}>{fmtPct(totalPct)}</div><div className="l">Tu cuenta desde tu entrada</div>
+              <div className={`v ${bloqueado ? "" : pnlClass(totalPct)}`}>{bloqueado ? "—" : fmtPct(totalPct)}</div><div className="l">Tu cuenta desde tu entrada</div>
             </div>
             <div className="metric"
               title="Lo que rindió la estrategia EN TU MISMA VENTANA (desde tu fecha de entrada hasta hoy). Es la comparación justa: mismo período para las dos curvas.">
               <div className={`v ${pnlClass(benchPct)}`}>{fmtPct(benchPct)}</div><div className="l">Estrategia en tu ventana</div>
             </div>
             <div className="metric" title="La mayor caída desde el punto más alto que tocó tu cuenta, ya descontados los movimientos de capital.">
-              <div className={`v ${pnlClass(ddMax)}`}>{fmtPct(ddMax, 1)}</div><div className="l">Drawdown máx.</div>
+              <div className={`v ${bloqueado ? "" : pnlClass(ddMax)}`}>{bloqueado ? "—" : fmtPct(ddMax, 1)}</div><div className="l">Drawdown máx.</div>
             </div>
             <div className="metric"
               title="PnL realizado neto atribuido al bot según el ledger de Binance (cierres + comisiones + funding), excluyendo posiciones previas al bot. El mismo número que el dashboard.">

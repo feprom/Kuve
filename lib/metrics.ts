@@ -793,3 +793,85 @@ export function resumenCuenta(
 
 /** Alias interno: `factorVivo` ya existe exportada mas arriba con otro nombre. */
 const factorVivo_ = factorVivo;
+
+// ---------------------------------------------------------------------------
+// 10. Guardas de publicacion: no pintar una cifra que no cuadra
+// ---------------------------------------------------------------------------
+/**
+ * POR QUE EXISTE. El informe mensual se NIEGA a emitir si una identidad no
+ * cuadra: `avisos` de nivel "aborta" bloquean el PDF, y el 28-ago-2026 eso evito
+ * dos veces publicar cifras descuadradas (dos cortes distintos en el mismo
+ * documento, y un total que no sumaba sus propias filas). La app no tenia nada
+ * equivalente: pintaba el numero pasara lo que pasara.
+ *
+ * Una pantalla que muestra un numero malo es peor que una que dice "ahora mismo
+ * no puedo mostrarlo": lo primero destruye la confianza en TODAS las demas
+ * cifras, y el cliente no tiene forma de saber cual estaba mal.
+ *
+ * "aborta"   -> quien consuma NO debe pintar la cifra afectada.
+ * "atencion" -> se pinta, pero con el aviso a la vista.
+ */
+export type Guarda = { nivel: "aborta" | "atencion"; texto: string };
+
+export function guardasCuenta(
+  snaps: SnapLike[],
+  flujos: Flujo[],
+  heredadoFills: HeredadoFill[] = [],
+  opts: { ledgerHasta?: string | null } = {},
+): Guarda[] {
+  const g: Guarda[] = [];
+  const s = sanearSnaps(snaps);
+  if (!s.length) { g.push({ nivel: "aborta", texto: "No hay ninguna barra de tu cuenta todavia." }); return g; }
+  const inception = inceptionTs(s);
+  if (inception == null) {
+    g.push({ nivel: "aborta", texto: "Tu cuenta no tiene ninguna barra con saldo: no hay serie que medir." });
+    return g;
+  }
+
+  // La validacion obligatoria del skill kuve-analisis, la misma que el informe:
+  // sin flujos de capital, el TWR DEBE coincidir con el retorno simple. Si no,
+  // la matematica esta rota y ninguna cifra derivada vale.
+  if (!flujos.length) {
+    const curva = curvaTwr(s, flujos, heredadoFills);
+    const t = curva.length ? (curva[curva.length - 1].y - 1) * 100 : null;
+    const e0 = num(s[0].equity), e1 = num(s[s.length - 1].equity);
+    if (t != null && e0 > 0) {
+      const simple = (e1 / e0 - 1) * 100;
+      // Sin heredados el TWR y el retorno simple deben ser el mismo numero. Con
+      // heredados la curva los descuenta a proposito y la diferencia es legitima.
+      if (!heredadoFills.length && Math.abs(t - simple) > 0.05) {
+        g.push({ nivel: "aborta", texto:
+          `El rendimiento calculado (${t.toFixed(2)} %) no coincide con la variacion del saldo ` +
+          `(${simple.toFixed(2)} %) en una cuenta sin aportes ni retiros.` });
+      }
+    }
+  }
+
+  // Ledger atrasado: el PnL realizado se queda corto y el cliente lo lee como
+  // una perdida menor de la que hubo. El informe tiene la misma guarda.
+  const ultBarra = ms(s[s.length - 1].ts);
+  if (opts.ledgerHasta) {
+    const atraso = ultBarra - ms(opts.ledgerHasta);
+    if (atraso > 3 * 3600e3) {
+      g.push({ nivel: "atencion", texto:
+        `El historial de Binance va ${Math.round(atraso / 3600e3)} h por detras de tu ultima barra: ` +
+        `las cifras realizadas pueden quedarse cortas.` });
+    }
+  }
+
+  // Hueco reciente en la serie: la incidencia del 18-ago dejo 62 h sin barras y
+  // el informe lo declara en su nota metodologica. La app debe decirlo tambien.
+  const dia = 24 * 3600e3;
+  let mayor = 0, desde = 0;
+  for (let i = 1; i < s.length; i++) {
+    const a = ms(s[i - 1].ts), b = ms(s[i].ts);
+    if (b < ultBarra - 7 * dia) continue;
+    if (b - a > mayor) { mayor = b - a; desde = a; }
+  }
+  if (mayor > 3 * 3600e3) {
+    g.push({ nivel: "atencion", texto:
+      `Hueco de ${Math.round(mayor / 3600e3)} h sin datos el ` +
+      `${new Date(desde).toISOString().slice(0, 10)}: ese tramo no esta medido.` });
+  }
+  return g;
+}
