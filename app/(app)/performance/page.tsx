@@ -7,8 +7,7 @@ import PerfChart from "@/components/PerfChart";
 import { attributeIncome, Attribution, IncomeRow } from "@/lib/pnl";
 import {
   detectarFlujos, curvaTwr, serieBenchmark, benchmarkEnVentana, sanearSnaps,
-  serieDrawdown, maxDrawdownTwr, twr,
-} from "@/lib/metrics";
+  serieDrawdown, maxDrawdownTwr, twr, resumenCuenta } from "@/lib/metrics";
 import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled } from "@/lib/queries";
 
 type Snap = { ts: string; bar_time: string; equity: number; unrealized_pnl: number; dd_pct: number; realized_cum: number; start_equity: number; n_trades: number };
@@ -103,9 +102,15 @@ export default function Performance() {
 
   // drawdown sobre la curva time-weighted (fuente única en lib/metrics)
   const ddPoints = serieDrawdown(curva);
-  const totalPct = twr(snaps, flujos, heredadoFills);
-  const ddMax = maxDrawdownTwr(snaps, flujos, heredadoFills);
-  const benchPct = entryTs != null ? benchmarkEnVentana(bench, entryTs) : null;
+  // FUENTE UNICA: la misma funcion que usa el dashboard. Antes cada pantalla
+  // calculaba lo suyo y publicaban dos "rendimiento desde tu entrada" distintos.
+  const res = resumenCuenta(snaps, flujos, heredadoFills, bench,
+    { comisionFills: attrib?.comisionFills, fundingFills: attrib?.fundingFills });
+  const totalPct = res.twrDesdeEntrada;
+  const ddMax = res.ddMax;
+  // Contra el indice NETO del arrastre real de esta cuenta: el bruto no descuenta
+  // comisiones ni funding, asi que gana siempre y no por ser mejor gestion.
+  const benchPct = res.benchNeto;
 
   return (
     <>
@@ -138,7 +143,7 @@ export default function Performance() {
             <h2>Estrategia vs tu cuenta (desde tu entrada, en %)</h2>
             <PerfChart series={series} markerX={entryTs} markerLabel="Tu entrada" />
             <p className="note">Ambas curvas parten de 0% en tu fecha de entrada — misma ventana, directamente comparables.
-              Verde: la estrategia KV-9014 con tu perfil (bruto, sin comisiones). Azul: tu cuenta real.
+              Verde: la estrategia KV-9014 con tu perfil, dibujada bruta. Azul: tu cuenta real. La cifra de arriba compara contra la estrategia NETA de los costos que tu cuenta pagó, que es la comparación válida.
               La curva azul es time-weighted: los depósitos y retiros mueven el tamaño de la cuenta, no la altura de la línea.</p>
           </div>
 

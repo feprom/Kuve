@@ -31,8 +31,7 @@ import { computeLevels, Levels, STRATEGY_PARAMS } from "@/lib/levels";
 import { attributeIncome, Attribution, IncomeRow, esApertura } from "@/lib/pnl";
 import {
   detectarFlujos, seriePnl, curvaTwr, maxDrawdown, serieBenchmark, sanearSnaps,
-  factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf,
-} from "@/lib/metrics";
+  factorVivo as factorVivoDe, twrEntre, pnlEntre, variantOf, resumenCuenta } from "@/lib/metrics";
 import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchEvents, fetchCompensaciones } from "@/lib/queries";
 import type { EventRow } from "@/lib/events";
 
@@ -234,10 +233,19 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   const upnlShow = enVivo ? upnlLiveTot : snap.unrealized_pnl;
   // el tramo en vivo se encadena al índice vía lib/metrics: neutraliza un
   // depósito/retiro ocurrido entre la última vela y ahora
-  const factorVivo = factorVivoDe(snaps, flujos, heredadoFills, enVivo ? equityShow : null);
-  const totalPctShow = factorVivo != null && curva.length > 1 ? (factorVivo - 1) * 100 : null;
-  // drawdown sobre la curva time-weighted: un depósito ya no infla el pico
-  const ddBot = maxDrawdown([...curva.map((p) => p.y), ...(factorVivo != null ? [factorVivo] : [])]);
+  /**
+   * FUENTE UNICA con /performance. El titular es el TWR a la ULTIMA VELA
+   * CERRADA, igual que el informe: antes el dashboard encadenaba el tramo vivo
+   * y publicaba un numero distinto al de /performance, cambiando cada 15 s bajo
+   * el mismo rotulo. El tramo vivo sigue disponible en `res.twrVivo` y se
+   * muestra aparte, rotulado.
+   */
+  const res = resumenCuenta(snaps, flujos, heredadoFills, bench, {
+    equityVivo: enVivo ? equityShow : null,
+    comisionFills: income?.comisionFills, fundingFills: income?.fundingFills,
+  });
+  const totalPctShow = res.twrDesdeEntrada;
+  const ddBot = res.ddMax;
 
   const leverage = equityShow ? expLive / equityShow : null;
   const freeUsdt = Math.max(0, equityShow - (snap.margin_used ?? 0));
@@ -319,6 +327,10 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
   // cerrada todavia, la linea decia "+$312,40 (+0,00%) hoy".
   // `factorVivo / curva[ultima].y` es exactamente ese tramo, ya neutralizado de
   // flujos intra-tramo — el mismo que gobierna `totalPctShow`.
+  // El factor vivo sale de la MISMA funcion compartida, no de un calculo local:
+  // asi el tramo que mueve "hoy" y "la semana" es exactamente el mismo que
+  // `resumenCuenta` publica en `twrVivo`, y no pueden separarse.
+  const factorVivo = res.twrVivo != null ? 1 + res.twrVivo / 100 : null;
   const ratioVivo = factorVivo != null && curva.length > 1 && curva[curva.length - 1].y > 0
     ? factorVivo / curva[curva.length - 1].y : 1;
   const conVivo = (pct: number | null) =>
@@ -374,6 +386,9 @@ export default function AccountView({ client, esAdmin = false }: { client: any; 
             <span className={pnlClass(pnlShow)}
               title="PnL y rendimiento time-weighted del bot desde tu entrada: los depósitos y retiros no cuentan como ganancia ni como pérdida.">
               <b>{fmtUsd(pnlShow)}</b> ({fmtPct(totalPctShow)}) total
+              {res.twrVivo != null && Math.abs(res.twrVivo - (totalPctShow ?? 0)) >= 0.005 && (
+                <span className="note" style={{ marginLeft: 6 }}>· {fmtPct(res.twrVivo)} en vivo</span>
+              )}
             </span>
           </div>
         </div>

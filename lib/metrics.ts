@@ -681,3 +681,115 @@ export function modifiedDietz(
   if (!(capitalMedio > 0) || !isFinite(ganancia)) return { pct: null, capitalMedio, flujoNeto };
   return { pct: (ganancia / capitalMedio) * 100, capitalMedio, flujoNeto };
 }
+
+// ---------------------------------------------------------------------------
+// 9. Resumen de cuenta: LA MISMA cifra en todas las pantallas
+// ---------------------------------------------------------------------------
+/**
+ * QUE PROBLEMA RESUELVE. El 28-ago-2026 una auditoria encontro que el dashboard
+ * y /performance publicaban DOS "rendimiento desde tu entrada" y DOS drawdowns
+ * distintos para el mismo cliente y el mismo instante: el dashboard encadenaba
+ * el tramo en vivo (precios de Binance cada 15 s) y /performance se detenia en
+ * la ultima vela. Dos numeros bajo el mismo rotulo, cambiando uno de ellos cada
+ * 15 segundos.
+ *
+ * La regla del proyecto es explicita: toda cifra que ve el cliente se calcula
+ * igual en todas las pantallas, y a la ultima vela cerrada. Esta funcion es esa
+ * cifra. El tramo en vivo NO desaparece —es util y el cliente lo pide— pero
+ * viaja en su propio campo y quien lo pinte debe rotularlo "en vivo".
+ *
+ * TAMBIEN unifica el benchmark. La app comparaba la cuenta contra el indice
+ * BRUTO, que no descuenta comisiones ni funding: el indice gana siempre, y no
+ * porque la gestion sea peor. El informe compara contra el indice NETO del
+ * arrastre real de esta cuenta, y esa es la comparacion valida.
+ */
+export type ResumenCuenta = {
+  /** Corte usado: `min(ahora, ultimaVelaCerrada())`. El mismo del informe. */
+  corte: number;
+  /** LA cifra canonica: TWR desde la entrada hasta la ultima vela cerrada. */
+  twrDesdeEntrada: number | null;
+  /** El mismo TWR con el tramo vivo encadenado. null si no se paso equity vivo. */
+  twrVivo: number | null;
+  /** Caida maxima sobre la curva cerrada. */
+  ddMax: number | null;
+  /** Caida maxima incluyendo el punto vivo. */
+  ddMaxVivo: number | null;
+  /** Indice del perfil en la misma ventana, BRUTO. */
+  benchBruto: number | null;
+  /**
+   * El indice menos el arrastre de costos REAL de esta cuenta. Es la unica
+   * comparacion valida contra la cuenta, y la que publica el informe.
+   */
+  benchNeto: number | null;
+  /** El arrastre, en % y NEGATIVO. Se publica para poder auditar `benchNeto`. */
+  arrastrePct: number;
+};
+
+/**
+ * Arrastre de costos del tramo, en % del equity medio. NEGATIVO = cuesta.
+ *
+ * Vive aqui y no en `reportes/lib/informe.ts` para que la app y el informe usen
+ * la misma: si cada uno calcula su propio "indice neto", vuelven a ser dos
+ * cifras distintas del mismo concepto, que es justo lo que esto corrige.
+ */
+export function arrastreCostos(
+  snaps: SnapLike[],
+  comisionFills: { ts: string; usd: number }[],
+  fundingFills: { ts: string; usd: number }[],
+  desde: number, hasta: number,
+): number {
+  const enTramo = (ts: string) => { const t = ms(ts); return t > desde && t <= hasta; };
+  const c = comisionFills.filter((x) => enTramo(x.ts)).reduce((a, x) => a + num(x.usd), 0);
+  const f = fundingFills.filter((x) => enTramo(x.ts)).reduce((a, x) => a + num(x.usd), 0);
+  const eqs = snaps.filter((x) => enTramo(x.ts)).map((x) => num(x.equity)).filter((v) => v > 1);
+  if (!eqs.length) return 0;
+  const medio = eqs.reduce((a, v) => a + v, 0) / eqs.length;
+  return medio > 0 ? ((c + f) / medio) * 100 : 0;
+}
+
+export function resumenCuenta(
+  snaps: SnapLike[],
+  flujos: Flujo[],
+  heredadoFills: HeredadoFill[],
+  bench: BenchLike[],
+  opts: {
+    /** Equity de ahora mismo, para el tramo vivo. Omitir = solo cifras cerradas. */
+    equityVivo?: number | null;
+    comisionFills?: { ts: string; usd: number }[];
+    fundingFills?: { ts: string; usd: number }[];
+  } = {},
+): ResumenCuenta {
+  const s = sanearSnaps(snaps);
+  const vacio: ResumenCuenta = {
+    corte: ultimaVelaCerrada(), twrDesdeEntrada: null, twrVivo: null,
+    ddMax: null, ddMaxVivo: null, benchBruto: null, benchNeto: null, arrastrePct: 0,
+  };
+  const inception = inceptionTs(s);
+  if (!s.length || inception == null) return vacio;
+
+  // EL MISMO corte que el informe. Sin esto la app va una barra por delante y
+  // publica un rendimiento que el PDF del mismo dia no reconoce.
+  const corte = Math.min(Date.now(), ultimaVelaCerrada());
+  const curva = curvaTwr(s, flujos, heredadoFills);
+  const twrDesdeEntrada = twrEntre(curva, inception, corte);
+
+  const factorVivo = opts.equityVivo != null
+    ? factorVivo_(s, flujos, heredadoFills, opts.equityVivo) : null;
+  const twrVivo = factorVivo != null ? (factorVivo - 1) * 100 : null;
+
+  const ys = curva.map((p) => p.y);
+  const ddMax = ys.length ? maxDrawdown(ys) : null;
+  const ddMaxVivo = ys.length
+    ? maxDrawdown([...ys, ...(factorVivo != null ? [factorVivo] : [])]) : null;
+
+  const benchBruto = benchmarkEnVentana(bench, inception, corte);
+  const arrastrePct = arrastreCostos(
+    s, opts.comisionFills ?? [], opts.fundingFills ?? [], inception, corte);
+  // `arrastrePct` ya viene negativo: se SUMA.
+  const benchNeto = benchBruto == null ? null : benchBruto + arrastrePct;
+
+  return { corte, twrDesdeEntrada, twrVivo, ddMax, ddMaxVivo, benchBruto, benchNeto, arrastrePct };
+}
+
+/** Alias interno: `factorVivo` ya existe exportada mas arriba con otro nombre. */
+const factorVivo_ = factorVivo;
