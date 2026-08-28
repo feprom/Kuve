@@ -117,9 +117,32 @@ export function inceptionTs(snaps: SnapLike[]): number | null {
   return s.length ? ms(s[0].ts) : null;
 }
 
-/** Variante de señales del perfil: risk_profiles.atr_mult NULL -> default. */
-export const variantOf = (atrMult: number | string | null | undefined): string =>
-  atrMult == null ? "default" : `atr${Math.round(Number(atrMult))}`;
+/**
+ * Variante de senales del perfil: `risk_profiles.atr_mult` NULL -> "default".
+ *
+ * ESTA CADENA TIENE QUE COINCIDIR EXACTAMENTE con la que escribe el motor en
+ * `bin/py/signal_engine.py`: `f"atr{int(g)}" if g == int(g) else f"atr{g}"`.
+ * No es una convencion de presentacion, es la CLAVE con la que se consultan las
+ * filas — y si no coincide, la consulta devuelve cero filas y la pantalla se
+ * queda vacia SIN ERROR. Un fallo silencioso, que es el peor que hay.
+ *
+ * Aqui habia `Math.round(...)`, que con un atr_mult de 2,5 pedia "atr3" cuando
+ * el motor habia escrito "atr2.5": redondear INVENTA una variante que no
+ * existe. Ahora se reproduce la regla del motor.
+ *
+ * Para el caso no entero la coincidencia exacta no se puede garantizar desde
+ * aqui (Postgres guarda `numeric` con su escala, y "2.50" y "2.5" son la misma
+ * cifra y distinta cadena), asi que la barrera de verdad esta en la DB: la
+ * migracion 20260828_10 exige que `atr_mult` sea entero. Si algun dia hace
+ * falta un valor fraccionario, saltara ese CHECK —ruidoso— en vez de una
+ * pantalla en blanco.
+ */
+export const variantOf = (atrMult: number | string | null | undefined): string => {
+  if (atrMult == null) return "default";
+  const n = Number(atrMult);
+  if (!isFinite(n)) return "default";
+  return Number.isInteger(n) ? `atr${n}` : `atr${String(atrMult)}`;
+};
 
 // ---------------------------------------------------------------------------
 // 1. Movimientos de capital
@@ -955,3 +978,674 @@ export function compuestaTwr(
 }
 
 const num_ = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+// ---------------------------------------------------------------------------
+// 12. ATRIBUCION POR ORIGEN Y RESULTADO POR ACTIVO
+// ---------------------------------------------------------------------------
+/**
+ * POR QUE VIVE AQUI Y NO EN `reportes/lib/atribucion.ts`, donde nacio.
+ *
+ * Porque la app tambien lo publica. Mientras esto vivio solo en el motor de
+ * informes, la unica forma de llevar «cuanto aporto cada activo» a la pantalla
+ * era reimplementar la regla — y la regla del proyecto es que ningun numero que
+ * ve el cliente se calcula dos veces (ver la cabecera de este archivo, A1).
+ *
+ * `reportes/lib/atribucion.ts` sigue existiendo y sigue siendo el punto de
+ * entrada del motor de informes, pero ahora REEXPORTA de aqui: un solo cuerpo
+ * de codigo, dos consumidores. Los comentarios que siguen son el contrato y se
+ * mudaron enteros con la funcion.
+ *
+ * ---------------------------------------------------------------------------
+ * Atribucion honesta del resultado: QUIEN produjo cada cierre.
+ *
+ * El objetivo es doble y simetrico: no cargarle al cliente lo que hizo el bot,
+ * y no cargarle a la estrategia lo que no decidio ella. Un informe que mezcla
+ * las cinco cosas en un solo numero no es "prudente", es opaco.
+ *
+ * CINCO clases:
+ *
+ *  ESTRATEGIA     El motor abrio y cerro segun su senal. ES el rendimiento de
+ *                 Kuve, el unico numero con el que se puede juzgar la estrategia.
+ *
+ *  FALLA_TECNICA  El bot cerro, pero NO porque su senal lo pidiera: cerro
+ *                 porque el estado real del exchange contradecia su estado
+ *                 interno (`drift_contradicts_signal`). Es un defecto de
+ *                 sincronizacion, no una decision de inversion. La perdida es
+ *                 responsabilidad de Kuve y se declara como tal — no se
+ *                 esconde dentro del rendimiento ni se le pasa al cliente.
+ *
+ *  STOP_SEGURIDAD El STOP_MARKET closePosition que el bot deja colocado en el
+ *                 exchange se disparo solo. Es la red de seguridad del sistema
+ *                 funcionando: cuenta como del sistema, pero se muestra aparte
+ *                 porque no es una salida de la estrategia.
+ *
+ *  HEREDADO       La posicion ya existia antes de que el bot empezara a
+ *                 gestionar la cuenta. Ni merito ni culpa de Kuve.
+ *
+ *  EXTERNO        No hay orden, ni trade, ni evento, ni stop que lo explique, y
+ *                 en muchos casos el bot ni siquiera estaba corriendo. Lo cerro
+ *                 una mano ajena (el cliente en la app de Binance) o fue una
+ *                 liquidacion del exchange.
+ *
+ * POR QUE `orders` NO BASTA para decidir esto (la trampa que hay que conocer):
+ * `_close_position()` y `_close_foreign()` van DIRECTOS a Binance sin pasar por
+ * `_send_order()` — executor.py:154 lo documenta: `_send_order` reserva una fila
+ * con UNIQUE(client_id, symbol, bar_time, side), y en la misma barra reconcile
+ * puede cerrar un corto (BUY) y converge abrir un largo (BUY) del mismo simbolo,
+ * chocando. Ademas, cuando el bot cierra por deriva y reabre en la misma barra,
+ * el `profit` del cierre acaba anotado en la fila de la APERTURA nueva (con
+ * profit=0 en la del cierre). Por eso la clasificacion se apoya en los EVENTOS
+ * del bot, no solo en las tablas de ordenes y trades.
+ *
+ * LOS UNICOS `kind` QUE ESTA FUNCION MIRA son `drift_contradicts_signal`,
+ * `foreign_position_closed`, `position_adopted` y cualquiera que contenga
+ * `safety_sl_triggered`. Se hace explicito porque la app filtra los eventos en
+ * la consulta (el motor de informes los trae todos): pasar el subconjunto o el
+ * conjunto entero da EXACTAMENTE el mismo resultado, y la sonda de conciliacion
+ * lo comprueba. Si algun dia se mira un `kind` nuevo, hay que ampliar tambien
+ * `EVENT_KINDS_ATRIBUCION`.
+ */
+
+export type Clase = "estrategia" | "falla_tecnica" | "stop_seguridad" | "heredado" | "externo";
+
+export type Fill = { ts: string; t: number; symbol: string; usd: number; clase: Clase; motivo: string };
+
+export type Resumen = {
+  porClase: Record<Clase, { n: number; usd: number; perdidas: number; ganancias: number }>;
+  /** Lo que de verdad hizo la estrategia. */
+  estrategiaUsd: number;
+  /** Perdidas causadas por defectos tecnicos ya corregidos. Responsabilidad de Kuve. */
+  fallaTecnicaUsd: number;
+  /** Cierres ajenos al sistema (cliente o exchange). */
+  externoUsd: number;
+  heredadoUsd: number;
+  /** Todos los fills que NO son de la estrategia, para la tabla del informe. */
+  noEstrategia: Fill[];
+  /**
+   * TODOS los fills clasificados, en orden cronologico. Existe para que
+   * `lib/informe.ts` pueda cortarlos por mes (obs. 3.2) sin reimplementar la
+   * regla de atribucion: agrupar por ventana es una operacion sobre el
+   * resultado, pero DECIDIR la clase de un fill tiene un solo sitio y es este.
+   */
+  fills: Fill[];
+  /**
+   * Resultado por activo, separando lo que hizo la estrategia de lo que no.
+   * `attributeIncome` de la app no agrupa por simbolo, y agrupar en la plantilla
+   * seria reimplementar la regla de atribucion fuera de su unico sitio.
+   *
+   * `otros` se conserva (= todo lo que no es estrategia) porque la plantilla
+   * mensual ya lo consume; las cinco columnas por clase se anaden para la
+   * obs. 3.6, que pide ver la falla tecnica separada del cierre externo.
+   */
+  porSimbolo: {
+    symbol: string; estrategia: number; otros: number;
+    fallaTecnica: number; stopSeguridad: number; heredado: number; externo: number;
+    comisiones: number; funding: number; nOps: number;
+  }[];
+};
+
+/**
+ * Los `kind` de `events` que `clasificar` consulta. La app filtra por ellos en
+ * la consulta a PostgREST para no traerse el historial entero de eventos al
+ * navegador; el motor de informes no filtra. El resultado es identico, y la
+ * sonda `probe_app_vs_informe_activos.ts` lo verifica cliente por cliente.
+ */
+export const EVENT_KINDS_ATRIBUCION = [
+  "drift_contradicts_signal", "foreign_position_closed", "position_adopted",
+] as const;
+/** El quinto se busca por substring: hay variantes con prefijo. */
+export const EVENT_KIND_STOP_LIKE = "safety_sl_triggered";
+
+/** Predicado unico: que eventos necesita `clasificar`. Lo usan la app (para
+ *  filtrar la consulta) y la sonda de conciliacion (para reproducir el filtro). */
+export const eventoRelevante = (kind: string): boolean =>
+  (EVENT_KINDS_ATRIBUCION as readonly string[]).includes(kind) ||
+  String(kind).includes(EVENT_KIND_STOP_LIKE);
+
+/** Margen entre el fill del ledger y el trade/evento que lo explica. */
+const CERCA_MS = 15 * 60e3;
+/** El mismo umbral que usa lib/pnl.ts para decidir si el bot abrio antes. */
+const ABRIO_ANTES_MS = 120e3;
+
+type RowAtr = { income_type: string; income: number; ts: string; symbol: string | null };
+type TradeAtr = { ts: string; symbol: string | null; profit: number | null; tag: string | null; order_id?: number | null };
+type OrdenAtr = { ts: string; symbol: string | null; reduce_only: boolean | null };
+type EventoAtr = { ts: string; kind: string; detail: any };
+
+export function clasificar(
+  ledger: RowAtr[],
+  trades: TradeAtr[],
+  ordenes: OrdenAtr[],
+  eventos: EventoAtr[],
+  desde: number,
+  /**
+   * Corte SUPERIOR. Sin el, `clasificar` devolvia todo hasta el instante de la
+   * llamada mientras el resto del informe se detiene en `corte` (la ultima vela
+   * cerrada): DOS CORTES DISTINTOS en el mismo documento.
+   *
+   * El sintoma real, 28-ago-2026 en Denise: la tabla por activo sumaba +61,16
+   * en agosto y la de mes a mes +45,99 — los 15,17 de diferencia eran fills
+   * ocurridos DESPUES de la ultima vela cerrada, contados por una tabla y no
+   * por la otra. La guarda de cuadre lo detecto y aborto la emision, que es
+   * exactamente para lo que esta.
+   *
+   * Manda `corte`: el resto del informe —curvas, TWR, capital— se detiene ahi,
+   * asi que incluir aqui operaciones que la curva todavia no refleja publicaria
+   * un resultado por activo que no existe en el rendimiento.
+   */
+  hasta: number = Infinity,
+): Resumen {
+  const aperturas = [
+    ...trades.filter((t) => !t.profit).map((t) => ({ symbol: t.symbol, t: ms(t.ts) })),
+    ...ordenes.filter((o) => !o.reduce_only).map((o) => ({ symbol: o.symbol, t: ms(o.ts) })),
+  ];
+  const cierresContabilizados = trades.filter((t) => t.profit)
+    .map((t) => ({ symbol: t.symbol, t: ms(t.ts), tag: String(t.tag ?? "") }));
+
+  // Eventos que explican un cierre que la estrategia NO pidio.
+  const deriva = eventos.filter((e) => e.kind === "drift_contradicts_signal")
+    .map((e) => ({ symbol: String(e.detail?.symbol ?? ""), t: ms(e.ts) }));
+  const stops = eventos.filter((e) => String(e.kind).includes("safety_sl_triggered"))
+    .map((e) => ({ symbol: String(e.detail?.symbol ?? ""), t: ms(e.ts) }));
+  const foraneas = eventos.filter((e) => e.kind === "foreign_position_closed" || e.kind === "position_adopted")
+    .map((e) => ({ symbol: String(e.detail?.symbol ?? ""), t: ms(e.ts) }));
+
+  const cerca = (xs: { symbol: string | null; t: number }[], sym: string, t: number) =>
+    xs.some((x) => x.symbol === sym && Math.abs(x.t - t) <= CERCA_MS);
+  const abrioAntes = (sym: string, t: number) =>
+    aperturas.some((a) => a.symbol === sym && a.t < t - ABRIO_ANTES_MS);
+
+  const vacioCl = () => ({ n: 0, usd: 0, perdidas: 0, ganancias: 0 });
+  const porClase: Record<Clase, ReturnType<typeof vacioCl>> = {
+    estrategia: vacioCl(), falla_tecnica: vacioCl(), stop_seguridad: vacioCl(),
+    heredado: vacioCl(), externo: vacioCl(),
+  };
+  const noEstrategia: Fill[] = [];
+  const fills: Fill[] = [];
+  const clasificados: [string, Clase, number][] = [];
+
+  for (const r of ledger) {
+    if (r.income_type !== "REALIZED_PNL") continue;
+    const t = ms(r.ts);
+    if (t < desde || t > hasta) continue;
+    const sym = r.symbol ?? "";
+    const usd = Number(r.income);
+
+    let clase: Clase, motivo: string;
+    if (!abrioAntes(sym, t)) {
+      clase = "heredado";
+      motivo = cerca(foraneas, sym, t)
+        ? "Posicion previa a la gestion, adoptada o cerrada por el bot"
+        : "Posicion previa a la gestion del bot";
+    } else if (cerca(deriva, sym, t)) {
+      // Prioritario sobre el trade: cuando el bot cierra por deriva y reabre en
+      // la misma barra, el profit del cierre se anota en la fila de la apertura.
+      clase = "falla_tecnica";
+      motivo = "El bot cerro porque la posicion real contradecia su senal (desincronizacion)";
+    } else if (cerca(stops, sym, t)) {
+      clase = "stop_seguridad";
+      motivo = "Stop de seguridad colocado en el exchange, disparado automaticamente";
+    } else if (cerca(cierresContabilizados, sym, t)) {
+      clase = "estrategia";
+      motivo = "Cierre segun la senal del motor";
+    } else {
+      clase = "externo";
+      motivo = "Sin orden, trade ni evento del bot que lo explique: cierre manual o liquidacion";
+    }
+
+    clasificados.push([sym, clase, usd]);
+    const a = porClase[clase];
+    a.n++; a.usd += usd;
+    if (usd < 0) a.perdidas += usd; else a.ganancias += usd;
+    const fill: Fill = { ts: r.ts, t, symbol: sym, usd, clase, motivo };
+    fills.push(fill);
+    if (clase !== "estrategia") noEstrategia.push(fill);
+  }
+
+  // ---- desglose por activo -------------------------------------------
+  type Sim = Resumen["porSimbolo"][number];
+  const sim = new Map<string, Sim>();
+  const dame = (sym: string): Sim => {
+    let x = sim.get(sym);
+    if (!x) {
+      x = { symbol: sym, estrategia: 0, otros: 0, fallaTecnica: 0, stopSeguridad: 0,
+            heredado: 0, externo: 0, comisiones: 0, funding: 0, nOps: 0 };
+      sim.set(sym, x);
+    }
+    return x;
+  };
+  const COLUMNA: Record<Clase, keyof Sim> = {
+    estrategia: "estrategia", falla_tecnica: "fallaTecnica",
+    stop_seguridad: "stopSeguridad", heredado: "heredado", externo: "externo",
+  };
+  for (const [sym, clase, usd] of clasificados) {
+    const x = dame(sym);
+    x.nOps++;
+    (x[COLUMNA[clase]] as number) += usd;
+    if (clase !== "estrategia") x.otros += usd;
+  }
+  // Costos: van al activo aunque su cierre no fuera de la estrategia.
+  for (const r of ledger) {
+    const t = ms(r.ts);
+    if (t < desde || t > hasta || !r.symbol) continue;
+    if (r.income_type === "COMMISSION") dame(r.symbol).comisiones += Number(r.income);
+    else if (r.income_type === "FUNDING_FEE") dame(r.symbol).funding += Number(r.income);
+  }
+  const porSimbolo = Array.from(sim.values())
+    .sort((a, b) => (a.estrategia + a.otros) - (b.estrategia + b.otros));
+
+  noEstrategia.sort((a, b) => a.usd - b.usd);
+  fills.sort((a, b) => a.t - b.t);
+  return {
+    porSimbolo, fills,
+    porClase,
+    estrategiaUsd: porClase.estrategia.usd,
+    fallaTecnicaUsd: porClase.falla_tecnica.usd,
+    externoUsd: porClase.externo.usd,
+    heredadoUsd: porClase.heredado.usd,
+    noEstrategia,
+  };
+}
+
+/** Etiquetas para el informe al cliente. Sin jerga interna. */
+export const ETIQUETA: Record<Clase, string> = {
+  estrategia:     "Operaciones de la estrategia",
+  falla_tecnica:  "Incidencias técnicas (asumidas por Kuve)",
+  stop_seguridad: "Stops de seguridad disparados",
+  heredado:       "Posiciones previas a la gestión",
+  externo:        "Cierres ajenos al sistema",
+};
+
+// ---------------------------------------------------------------------------
+// Lucro cesante: lo que la cuenta NO gano porque el bot estaba parado.
+// ---------------------------------------------------------------------------
+
+export type Interrupcion = {
+  desde: number; hasta: number; horas: number;
+  /** % que hizo la estrategia mientras la cuenta estaba congelada. */
+  benchPct: number | null;
+  /** % que hizo la cuenta en esa misma ventana (normalmente ~0: no operaba). */
+  cuentaPct: number | null;
+  /** benchPct - cuentaPct, en puntos porcentuales. Positivo = se dejo de ganar. */
+  costePp: number | null;
+  /** Estimacion en USD sobre el equity al inicio de la interrupcion. */
+  costeUsd: number | null;
+};
+
+/**
+ * Detecta los huecos de la serie horaria (el bot no escribio snapshot => no
+ * estaba operando) y cuantifica lo que se dejo de ganar en cada uno.
+ *
+ * Es deliberadamente una ESTIMACION y hay que presentarla como tal: supone que
+ * la cuenta habria seguido al indice del perfil durante la parada. El indice es
+ * bruto (sin comisiones ni funding), asi que el coste real es algo menor. Aun
+ * asi es mucho mas honesto que callarlo: durante el apagon del 18-21 de agosto
+ * la estrategia se movio y las cuentas no.
+ *
+ * `minHoras` = 3: por debajo de eso son huecos de mantenimiento sin efecto
+ * material, y contarlos todos convertiria la tabla en ruido.
+ */
+export function interrupciones(
+  snaps: { ts: string; equity: number }[],
+  curvaTwrEntre: (a: number, b: number) => number | null,
+  benchEnVentana: (a: number, b: number) => number | null,
+  minHoras = 3,
+): Interrupcion[] {
+  const out: Interrupcion[] = [];
+  for (let i = 1; i < snaps.length; i++) {
+    const a = ms(snaps[i - 1].ts), b = ms(snaps[i].ts);
+    const horas = (b - a) / 3600e3;
+    if (horas < minHoras) continue;
+    const benchPct = benchEnVentana(a, b);
+    const cuentaPct = curvaTwrEntre(a, b);
+    const costePp = benchPct == null || cuentaPct == null ? null : benchPct - cuentaPct;
+    const eq = Number(snaps[i - 1].equity);
+    out.push({
+      desde: a, hasta: b, horas, benchPct, cuentaPct, costePp,
+      costeUsd: costePp == null || !isFinite(eq) ? null : eq * costePp / 100,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 13. LA TABLA «RESULTADO POR ACTIVO», tal cual la publica el informe
+// ---------------------------------------------------------------------------
+/**
+ * POR QUE ESTA FUNCION EXISTE Y POR QUE ESTA AQUI.
+ *
+ * `clasificar` responde «que clase es cada fill». Convertir eso en la tabla que
+ * el cliente lee —repartir la reparacion, cuadrar los costos contra el ledger,
+ * anadir la fila de cartera, redondear y totalizar— eran ~120 lineas dentro de
+ * `reportes/lib/informe.ts`, es decir dentro del motor de informes. La pantalla
+ * /performance publica exactamente esa tabla; si la reconstruyera por su cuenta
+ * habria dos aritmeticas para el mismo cuadro y divergirian al primer centimo,
+ * que es el defecto que mas caro ha salido en este proyecto.
+ *
+ * Se mudo ENTERA, sin tocar una sola operacion: `informe.ts` la llama y publica
+ * su salida tal cual, y `/performance` llama a la misma con la misma entrada.
+ * Las guardas duras («la reparacion repartida ES la compensacion reconocida»,
+ * «los costos por simbolo SON los del ledger») viajan dentro y siguen abortando
+ * la emision del informe cuando fallan.
+ *
+ * ⚠️ EL TOTAL SE SUMA SOBRE LOS IMPORTES REDONDEADOS A CENTIMOS, NO SOBRE LOS
+ * CRUDOS, y esto es deliberado. Sumar los crudos REPRODUCE el bug: el ledger
+ * trae −121,148 y la estimacion −224,216, cuya suma cruda es −345,364 → se
+ * imprime −345,36, mientras que las dos filas impresas dicen −121,15 y −224,22
+ * → el ojo suma −345,37. En una tabla que el cliente suma con el dedo, el total
+ * tiene que ser el total DE LO IMPRESO.
+ */
+export type FilaActivo = {
+  symbol: string; etiqueta: string; esCartera: boolean;
+  estrategia: number; externo: number; fallaTecnica: number;
+  lucroCesante: number; reparacion: number; neto: number;
+  comisiones: number; funding: number; nOps: number;
+  /**
+   * Las dos columnas DERIVADAS de la tabla por activo, calculadas aqui y sobre
+   * los importes YA REDONDEADOS. La plantilla las imprimia como
+   * `comisiones + funding` y `neto - reparacion` sobre los crudos: en Walter,
+   * cuya cuenta es de 100 USD, la fila de XAG imprimia −$0,03 y −$0,01 y una
+   * suma de −$0,03. Un centimo sobre tres es un tercio de la cifra.
+   */
+  costos: number; sinReparar: number;
+  /**
+   * Contribucion de la fila a la cartera, en % del capital aportado.
+   *
+   * ES UNA COLUMNA NUEVA, que el PDF hoy no imprime: la pide la pantalla
+   * («cuanto aporto cada activo en dolares Y en % sobre la cartera»). Vive aqui
+   * y no en el componente para que, el dia que el PDF la imprima, las dos
+   * superficies publiquen el mismo numero sin negociarlo.
+   *
+   * Denominador: `capitalAportado(snaps, flujos, corte)` — inicial + aportes −
+   * retiros. NO es el equity de hoy: el equity ya lleva dentro el resultado que
+   * estamos midiendo, y dividir un resultado por un saldo que lo contiene da un
+   * porcentaje que se encoge justo cuando el activo gana mas.
+   *
+   * NO ES UN RENDIMIENTO TIME-WEIGHTED y no se puede comparar con `twr`: es
+   * money-weighted por construccion (dolares sobre dolares), la misma distincion
+   * que documenta `usdDesdeEntrada` en informe.ts. Por eso la fila total puede
+   * no coincidir con el TWR publicado arriba, y la pantalla lo rotula.
+   *
+   * `null` cuando no hay capital contra el que medir.
+   */
+  pctCartera: number | null;
+};
+
+/** Lo minimo que esta funcion necesita de una fila de `client_compensations`. */
+export type CompensacionLike = { concepto?: string | null; monto_usd: number | string };
+
+/** Redondeo a centimos. El mismo `c2` que usaba informe.ts. */
+const c2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+
+export function tablaPorActivo(args: {
+  /** `clasificar(...).porSimbolo` desde la ENTRADA hasta el corte. */
+  porSimbolo: Resumen["porSimbolo"];
+  /** Compensaciones vivas (estado <> 'anulado', tipo = 'compensacion'). */
+  comps: CompensacionLike[];
+  /** Total de compensacion reconocida. Debe cuadrar con lo repartido. */
+  compensacionTotal: number;
+  /** `c2(comisionesVida + fundingVida)` del ledger, desde la entrada al corte. */
+  costosLedger: number;
+  /** Lucro cesante acumulado, POSITIVO (se imprime en negativo). */
+  lucroCesanteUsd: number;
+  /** `capitalAportado(snaps, flujos, corte)`. null = sin columna de %. */
+  capitalBase: number | null;
+}): { filas: FilaActivo[]; total: FilaActivo; avisos: Guarda[];
+      /** El mismo reparto que usa la tabla, publicado para que el desglose de
+       *  la reparacion (informe.ts) no vuelva a partir las compensaciones por
+       *  su cuenta: un solo discriminante `esIncidencia`, un solo resultado. */
+      repIncidencias: number; repCartera: number } {
+  const avisos: Guarda[] = [];
+  const { comps, compensacionTotal, costosLedger, lucroCesanteUsd, capitalBase } = args;
+
+  //  El discriminante es `concepto`, no el texto libre de `motivo`: la DB usa
+  //  dos conceptos fijos ("Compensación por incidencias técnicas" y
+  //  "Compensación por beneficio no percibido"). Si apareciera un concepto
+  //  nuevo que no case, cae por defecto en la fila de cartera —nunca se pierde,
+  //  y la identidad de totales sigue cuadrando— y se levanta un aviso.
+  const esIncidencia = (c: CompensacionLike) => /incidencia/i.test(String(c.concepto ?? ""));
+  const esNoPercibido = (c: CompensacionLike) => /no percibid/i.test(String(c.concepto ?? ""));
+  const repIncidencias = comps.filter(esIncidencia).reduce((s, k) => s + Number(k.monto_usd), 0);
+  const repCartera = comps.filter((k) => !esIncidencia(k)).reduce((s, k) => s + Number(k.monto_usd), 0);
+  for (const k of comps) {
+    if (!esIncidencia(k) && !esNoPercibido(k)) {
+      avisos.push({ nivel: "atencion", texto:
+        "Compensacion con concepto no reconocido (\"" + k.concepto + "\"): se imputa a la fila de cartera sin repartir por activo." });
+    }
+  }
+
+  const simbolos = (args.porSimbolo ?? []).filter((s) => s.symbol);
+  // Base del reparto: solo las PERDIDAS por falla tecnica. Una ganancia
+  // accidental de un cierre desincronizado no genera derecho a compensacion.
+  const perdidaFt = simbolos.map((s) => Math.min(0, s.fallaTecnica ?? 0));
+  const totalPerdidaFt = perdidaFt.reduce((a2, v) => a2 + v, 0);
+  const filas: FilaActivo[] = simbolos.map((s, k) => {
+    const rep = totalPerdidaFt < 0 ? repIncidencias * (perdidaFt[k] / totalPerdidaFt) : 0;
+    // Las cinco clases de `clasificar` caben en las TRES columnas del contrato:
+    //  - `estrategia` = estrategia + stop de seguridad. El stop es del sistema
+    //    y es la misma agrupacion que usa `mensual.bot`, para que las dos
+    //    tablas se puedan sumar entre si.
+    //  - `externo` = externo + heredado. Ninguno de los dos lo produjo la
+    //    estrategia y de ninguno responde Kuve. Meter `heredado` dentro de
+    //    `estrategia` seria apuntarle a la estrategia un resultado de posiciones
+    //    que existian antes de que el bot tocara la cuenta.
+    //  - `fallaTecnica` va sola: es la unica de la que responde Kuve, y es la
+    //    que la compensacion (a) reintegra.
+    const estrategia = c2((s.estrategia ?? 0) + (s.stopSeguridad ?? 0));
+    const externo = c2((s.externo ?? 0) + (s.heredado ?? 0));
+    const fallaTecnica = c2(s.fallaTecnica ?? 0);
+    const costos = c2(c2(s.comisiones) + c2(s.funding));
+    const sinReparar = c2(estrategia + externo + fallaTecnica + costos);
+    return {
+      symbol: s.symbol, etiqueta: s.symbol, esCartera: false,
+      estrategia, externo, fallaTecnica,
+      lucroCesante: 0, reparacion: c2(rep),
+      costos, sinReparar,
+      neto: c2(sinReparar + c2(rep)),
+      comisiones: c2(s.comisiones), funding: c2(s.funding), nOps: s.nOps,
+      pctCartera: null,
+    };
+  });
+
+  // ---- cuadre de la columna de COSTOS contra el ledger --------------------
+  // El informe imprime el mismo concepto en dos sitios: el total del ledger
+  // (comisiones + funding desde la entrada) y esta columna repartida por
+  // simbolo. Salen del MISMO dato, pero una se redondea a centimos por simbolo
+  // antes de sumar y la otra no, asi que discrepaban: −9,88 contra −9,89 en
+  // Denise, −4,19 contra −4,20 en Mario. Un centimo, en dos paginas seguidas,
+  // con la misma etiqueta — que es el defecto exacto que mas caro ha salido.
+  //
+  // Se corrige donde nace: el residuo de redondeo se imputa al simbolo de MAYOR
+  // costo en valor absoluto, que es el unico al que un centimo no le cambia la
+  // lectura. Manda el ledger, que es el dato observado; el reparto por simbolo
+  // es una imputacion. Si el residuo dejara de ser redondeo —mas de un centimo
+  // por simbolo— es que las dos fuentes divergen de verdad y el informe no sale.
+  const residuoCostos = c2(costosLedger - filas.reduce((a2, f) => a2 + c2(f.costos), 0));
+  if (Math.abs(residuoCostos) > 0.005) {
+    const k = filas.reduce((mejor, f, idx) =>
+      Math.abs(f.costos) > Math.abs(filas[mejor].costos) ? idx : mejor, 0);
+    const f = filas[k];
+    if (f && Math.abs(residuoCostos) <= 0.01 * filas.length + 0.005) {
+      f.costos = c2(f.costos + residuoCostos);
+      f.sinReparar = c2(f.sinReparar + residuoCostos);
+      f.neto = c2(f.neto + residuoCostos);
+    } else {
+      avisos.push({ nivel: "aborta", texto:
+        "Los costos repartidos por simbolo (" +
+        filas.reduce((a2, x) => a2 + c2(x.costos), 0).toFixed(2) +
+        ") no cuadran con el ledger (" + costosLedger.toFixed(2) +
+        "): la brecha excede el redondeo." });
+    }
+  }
+
+  // Si no hubo ninguna perdida por falla tecnica a la que colgar la
+  // compensacion de incidencias, no se reparte a ojo: se declara en la fila de
+  // cartera. Nunca se pierde dinero por el camino.
+  const repHuerfana = totalPerdidaFt < 0 ? 0 : repIncidencias;
+  filas.push({
+    symbol: "", etiqueta: "Cartera (parada del servicio)", esCartera: true,
+    estrategia: 0, externo: 0, fallaTecnica: 0,
+    lucroCesante: c2(-lucroCesanteUsd),   // negativo: dinero que no se gano
+    reparacion: c2(repCartera + repHuerfana),
+    costos: 0,
+    // El lucro cesante NO es un movimiento de la cuenta: "sin reparar" vale 0
+    // en esta fila, y por eso la reparacion la deja en neto = reparacion.
+    sinReparar: 0,
+    neto: c2(repCartera + repHuerfana),
+    comisiones: 0, funding: 0, nOps: 0,
+    pctCartera: null,
+  });
+
+  // ---- fila TOTAL -------------------------------------------------------
+  const COLS = ["estrategia", "externo", "fallaTecnica", "lucroCesante",
+                "reparacion", "neto", "comisiones", "funding",
+                "costos", "sinReparar"] as const;
+  const total: FilaActivo = {
+    symbol: "", etiqueta: "Total", esCartera: false,
+    estrategia: 0, externo: 0, fallaTecnica: 0, lucroCesante: 0,
+    reparacion: 0, neto: 0, comisiones: 0, funding: 0, costos: 0, sinReparar: 0,
+    nOps: filas.reduce((a, f) => a + f.nOps, 0),
+    pctCartera: null,
+  };
+  for (const col of COLS) {
+    total[col] = c2(filas.reduce((a, f) => a + c2(f[col]), 0));
+  }
+
+  // La columna de % se calcula DESPUES del cuadre, sobre los importes ya
+  // impresos, y el total es la suma de los porcentajes impresos — el mismo
+  // criterio que las columnas en dolares, por la misma razon: el cliente suma
+  // la columna con el dedo.
+  if (capitalBase != null && Math.abs(capitalBase) > 0) {
+    for (const f of filas) f.pctCartera = c2((f.neto / capitalBase) * 100);
+    total.pctCartera = c2(filas.reduce((a, f) => a + (f.pctCartera ?? 0), 0));
+  }
+
+  // La identidad dura de la tabla: el total de la columna de reparacion ES la
+  // compensacion reconocida. Si se rompe, hay dinero perdido en el reparto por
+  // activo y el informe no se puede emitir.
+  if (Math.abs(total.reparacion - compensacionTotal) > 0.005) {
+    avisos.push({ nivel: "aborta", texto:
+      "El total de la columna de reparacion por activo (" + total.reparacion.toFixed(2) +
+      ") no coincide con la compensacion reconocida (" + compensacionTotal.toFixed(2) + ")." });
+  }
+  // La segunda identidad dura: la columna de costos repartida por simbolo ES el
+  // total del ledger. Sin esto se publican dos importes distintos del mismo
+  // concepto en dos paginas seguidas.
+  if (Math.abs(total.costos - costosLedger) > 0.005) {
+    avisos.push({ nivel: "aborta", texto:
+      "El total de la columna de costos por activo (" + total.costos.toFixed(2) +
+      ") no coincide con el ledger (" + costosLedger.toFixed(2) + ")." });
+  }
+
+  return { filas, total, avisos, repIncidencias, repCartera };
+}
+
+// ---------------------------------------------------------------------------
+// 14. ENSAMBLADO: de las filas crudas a la tabla, en una sola llamada
+// ---------------------------------------------------------------------------
+/**
+ * `tablaPorActivo` recibe cifras ya preparadas (los costos del ledger, el lucro
+ * cesante, la base de capital). Prepararlas son cuatro filtros por ventana, y
+ * cuatro filtros por ventana escritos dos veces son cuatro sitios donde la app
+ * y el informe pueden separarse por un centimo. Los dos que importan viven aqui
+ * y los llaman los dos lados.
+ */
+
+/** Suma de fills (comisiones, funding) en (desde, hasta]. El MISMO predicado
+ *  de ventana en la app y en el informe: `t > desde && t <= hasta`. */
+export function sumaFillsEntre(
+  fills: { ts: string; usd: number }[], desde: number, hasta: number,
+): number {
+  return fills.reduce((a, x) => {
+    const t = ms(x.ts);
+    return a + (t > desde && t <= hasta ? num(x.usd) : 0);
+  }, 0);
+}
+
+/**
+ * Lucro cesante acumulado en (desde, hasta], en USD y POSITIVO (dinero que no
+ * se gano). Envuelve `interrupciones` con el recorte de la serie que hay que
+ * hacerle antes: solo las barras dentro de la ventana, o los huecos de antes de
+ * la entrada contarian como paradas del servicio.
+ */
+export function interrupcionesEntre(
+  snaps: SnapLike[],
+  curva: Punto[],
+  bench: BenchLike[],
+  desde: number, hasta: number,
+): Interrupcion[] {
+  const dentro = sanearSnaps(snaps).filter((s) => {
+    const t = ms(s.ts); return t >= desde && t <= hasta;
+  }) as { ts: string; equity: number }[];
+  return interrupciones(
+    dentro,
+    (a, b) => twrEntre(curva, a, b),
+    (a, b) => benchmarkEnVentana(bench, a, b),
+  );
+}
+
+export function lucroCesanteEntre(
+  snaps: SnapLike[], curva: Punto[], bench: BenchLike[], desde: number, hasta: number,
+): number {
+  return interrupcionesEntre(snaps, curva, bench, desde, hasta)
+    .reduce((acc, x) => acc + (x.costeUsd ?? 0), 0);
+}
+
+/**
+ * LA TABLA «RESULTADO POR ACTIVO» DESDE LA ENTRADA, a partir de las filas
+ * crudas. Es el punto de entrada de la app: /performance llama a esto y pinta
+ * lo que sale, sin sumar ni dividir nada por su cuenta.
+ *
+ * `reportes/lib/informe.ts` no la llama —ya trae calculados el lucro cesante y
+ * los costos porque los publica tambien en otras secciones— pero llama a las
+ * MISMAS funciones con los MISMOS argumentos: `clasificar`, `sumaFillsEntre`,
+ * `lucroCesanteEntre`, `capitalAportado` y `tablaPorActivo`. La sonda
+ * `reportes/bin/probe_app_vs_informe_activos.ts` corre las dos rutas sobre el
+ * mismo cliente y compara fila a fila y columna a columna.
+ *
+ * EL CORTE es `min(ahora, ultimaVelaCerrada())`, el mismo de `resumenCuenta` y
+ * el mismo del informe cuando la ventana es el mes en curso. Sin esa igualdad
+ * la app contaria fills que la curva todavia no refleja.
+ */
+export function contribucionPorActivo(args: {
+  snaps: SnapLike[];
+  ledger: RowAtr[];
+  trades: TradeAtr[];
+  ordenes: OrdenAtr[];
+  /** Solo hacen falta los `kind` de `EVENT_KINDS_ATRIBUCION` (+ el stop). */
+  eventos: EventoAtr[];
+  /** `tipo = 'compensacion'` y `estado <> 'anulado'`. */
+  comps: CompensacionLike[];
+  bench: BenchLike[];
+  /** De `attributeIncome`: cierres de posiciones previas al bot. */
+  heredadoFills: HeredadoFill[];
+  comisionFills: { ts: string; usd: number }[];
+  fundingFills: { ts: string; usd: number }[];
+  ahora?: number;
+}): {
+  filas: FilaActivo[]; total: FilaActivo; avisos: Guarda[];
+  inception: number; corte: number; capitalBase: number;
+  costosLedger: number; lucroCesanteUsd: number;
+} | null {
+  const s = sanearSnaps(args.snaps);
+  const inception = inceptionTs(s);
+  if (!s.length || inception == null) return null;
+
+  const corte = Math.min(args.ahora ?? Date.now(), ultimaVelaCerrada());
+  const flujos = detectarFlujos(s, args.ledger as unknown as IncomeLike[]);
+  const curva = curvaTwr(s, flujos, args.heredadoFills);
+
+  const clases = clasificar(args.ledger, args.trades, args.ordenes, args.eventos, inception, corte);
+  const comisiones = sumaFillsEntre(args.comisionFills, inception, corte);
+  const funding = sumaFillsEntre(args.fundingFills, inception, corte);
+  const lucroCesanteUsd = lucroCesanteEntre(s, curva, args.bench, inception, corte);
+  const costosLedger = Math.round((comisiones + funding) * 100) / 100;
+  const capitalBase = capitalAportado(s, flujos, corte);
+  const compensacionTotal = args.comps.reduce((a, k) => a + num(k.monto_usd), 0);
+
+  const t = tablaPorActivo({
+    porSimbolo: clases.porSimbolo, comps: args.comps, compensacionTotal,
+    costosLedger, lucroCesanteUsd, capitalBase,
+  });
+  return { ...t, inception, corte, capitalBase, costosLedger, lucroCesanteUsd };
+}

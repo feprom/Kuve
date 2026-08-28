@@ -5,6 +5,7 @@
  * pierde su inception en silencio y el TWR arranca tarde.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { EVENT_KINDS_ATRIBUCION, EVENT_KIND_STOP_LIKE } from "./metrics";
 
 const PAGE = 1000;
 
@@ -136,5 +137,55 @@ export function fetchCompensaciones(sb: SupabaseClient, clientId: string) {
     .select("id, fecha, monto_usd, concepto, estado")
     .eq("client_id", clientId)
     .eq("estado", "pendiente")
+    .order("fecha", { ascending: true });
+}
+
+/**
+ * Eventos que necesita la ATRIBUCION POR ACTIVO, desde el inception y sin corte
+ * de filas.
+ *
+ * POR QUE NO SIRVE `fetchEvents`: esa trae los N mas recientes (60, 150, 200)
+ * para el feed. `clasificar` tiene que ver TODOS los eventos de la vida de la
+ * cuenta — si le falta el `drift_contradicts_signal` de julio, ese cierre pasa
+ * de «incidencia tecnica asumida por Kuve» a «operacion de la estrategia» y la
+ * pantalla publica un resultado por activo distinto del que imprime el PDF.
+ *
+ * POR QUE SE FILTRA POR `kind`: `clasificar` solo mira cuatro tipos, y son
+ * exactamente los de `EVENT_KINDS_ATRIBUCION` + `EVENT_KIND_STOP_LIKE`. Traer
+ * el resto seria bajar miles de filas al navegador para descartarlas. El motor
+ * de informes no filtra (en SQL directo no cuesta nada); el resultado de la
+ * clasificacion es identico, y la sonda probe_app_vs_informe_activos.ts lo
+ * comprueba corriendo las dos entradas contra el mismo `clasificar`.
+ */
+export function fetchEventosAtribucion(sb: SupabaseClient, clientId: string, desdeTs: string) {
+  const enLista = EVENT_KINDS_ATRIBUCION.join(",");
+  return fetchAll<Record<string, unknown>>((from, to) =>
+    sb.from("events")
+      .select("ts, kind, detail")
+      .eq("client_id", clientId)
+      .gte("ts", desdeTs)
+      .or(`kind.in.(${enLista}),kind.like.*${EVENT_KIND_STOP_LIKE}*`)
+      .order("ts", { ascending: true })
+      .range(from, to));
+}
+
+/**
+ * TODAS las compensaciones vivas del cliente — las mismas filas que ve el
+ * informe (`reportes/lib/db.ts::compensaciones`): `tipo = 'compensacion'` y
+ * `estado <> 'anulado'`.
+ *
+ * NO confundir con `fetchCompensaciones`, que filtra `estado = 'pendiente'`
+ * porque su pregunta es otra ("cuanto le debe Kuve HOY"). Para el reparto por
+ * activo hace falta tambien lo ya LIQUIDADO: una reparacion que se pago sigue
+ * explicando el resultado del activo al que se imputo. Con el filtro de
+ * pendientes, el dia que se liquide la compensacion la app dejaria de repartirla
+ * y el PDF seguiria haciendolo — dos tablas distintas del mismo cuadro.
+ */
+export function fetchCompensacionesVivas(sb: SupabaseClient, clientId: string) {
+  return sb.from("client_compensations")
+    .select("id, fecha, monto_usd, concepto, estado, tipo")
+    .eq("client_id", clientId)
+    .eq("tipo", "compensacion")
+    .neq("estado", "anulado")
     .order("fecha", { ascending: true });
 }

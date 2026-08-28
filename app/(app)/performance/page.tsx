@@ -5,10 +5,13 @@ import { fmtUsd, fmtPct, pnlClass } from "@/lib/format";
 import LineChart from "@/components/LineChart";
 import PerfChart from "@/components/PerfChart";
 import { attributeIncome, Attribution, IncomeRow } from "@/lib/pnl";
+import ContribucionActivos from "@/components/ContribucionActivos";
 import {
   detectarFlujos, curvaTwr, serieBenchmark, benchmarkEnVentana, sanearSnaps,
-  serieDrawdown, maxDrawdownTwr, twr, resumenCuenta, guardasCuenta } from "@/lib/metrics";
-import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled } from "@/lib/queries";
+  serieDrawdown, maxDrawdownTwr, twr, resumenCuenta, guardasCuenta,
+  contribucionPorActivo } from "@/lib/metrics";
+import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled,
+  fetchEventosAtribucion, fetchCompensacionesVivas } from "@/lib/queries";
 
 type Snap = { ts: string; bar_time: string; equity: number; unrealized_pnl: number; dd_pct: number; realized_cum: number; start_equity: number; n_trades: number };
 type Bench = { date: string; equity_index: number };
@@ -18,6 +21,14 @@ export default function Performance() {
   const [ledger, setLedger] = useState<IncomeRow[]>([]);
   const [attrib, setAttrib] = useState<Attribution | null>(null);
   const [bench, setBench] = useState<Bench[]>([]);
+  // Entradas de la tabla «que aporto cada activo». Se cargan aparte de
+  // `attrib` porque `clasificar` necesita los EVENTOS del bot (una posicion
+  // cerrada por desincronizacion no se distingue de una cerrada por senal si
+  // solo se miran ordenes y trades) y las compensaciones ya reconocidas.
+  const [trades, setTrades] = useState<any[]>([]);
+  const [ordenes, setOrdenes] = useState<any[]>([]);
+  const [eventos, setEventos] = useState<any[]>([]);
+  const [comps, setComps] = useState<any[]>([]);
   const [profileName, setProfileName] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -39,14 +50,23 @@ export default function Performance() {
           if (!alive) return;
           setSnaps(snapRows);
           if (snapRows.length) {
-            const [incRows, t, o] = await Promise.all([
+            const [incRows, t, o, ev, cp] = await Promise.all([
               fetchIncome(sb, c.id, snapRows[0].ts),
               fetchTrades(sb, c.id),
               fetchOrdersFilled(sb, c.id),
+              // Desde la PRIMERA barra, no los ultimos N: si falta el evento de
+              // julio, ese cierre cambia de clase y la tabla deja de coincidir
+              // con el PDF.
+              fetchEventosAtribucion(sb, c.id, snapRows[0].ts),
+              fetchCompensacionesVivas(sb, c.id),
             ]);
             if (!alive) return;
             setLedger(incRows as unknown as IncomeRow[]);
             setAttrib(attributeIncome(incRows as unknown as IncomeRow[], t as any[], o as any[]));
+            setTrades(t as any[]); setOrdenes(o as any[]);
+            setEventos(ev as any[]);
+            if (cp?.error) throw new Error(cp.error.message);
+            setComps((cp?.data ?? []) as any[]);
           }
           if (c.risk_profile_id) {
             const { data: b } = await sb.from("strategy_benchmark").select("date, equity_index")
@@ -73,6 +93,18 @@ export default function Performance() {
     const curva = curvaTwr(snaps, flujos, heredadoFills);
     return { flujos, heredadoFills, curva };
   }, [snaps, ledger, attrib]);
+
+  // La tabla por activo: UNA llamada a la funcion compartida con el motor de
+  // informes. La pantalla no suma, no reparte y no redondea nada.
+  const porActivo = useMemo(() => {
+    if (!snaps.length || !attrib) return null;
+    return contribucionPorActivo({
+      snaps, ledger, trades, ordenes, eventos, comps, bench,
+      heredadoFills: attrib.heredadoFills ?? [],
+      comisionFills: attrib.comisionFills ?? [],
+      fundingFills: attrib.fundingFills ?? [],
+    });
+  }, [snaps, ledger, trades, ordenes, eventos, comps, bench, attrib]);
 
   if (loading) return (
     <>
@@ -156,6 +188,11 @@ export default function Performance() {
               Verde: la estrategia KV-9014 con tu perfil, dibujada bruta. Azul: tu cuenta real. La cifra de arriba compara contra la estrategia NETA de los costos que tu cuenta pagó, que es la comparación válida.
               La curva azul es time-weighted: los depósitos y retiros mueven el tamaño de la cuenta, no la altura de la línea.</p>
           </div>
+
+          {porActivo && !bloqueado && porActivo.filas.length > 1 && (
+            <ContribucionActivos filas={porActivo.filas} total={porActivo.total}
+              capitalBase={porActivo.capitalBase} />
+          )}
 
           {ddPoints.length > 1 && (
             <div className="card">
