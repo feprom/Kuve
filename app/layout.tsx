@@ -19,9 +19,9 @@ export const metadata: Metadata = {
     locale: "es_ES",
     images: [
       {
-        url: "/kuve-logo.jpg",
-        width: 1008,
-        height: 501,
+        url: "/kuve-brain.png",
+        width: 512,
+        height: 512,
         alt: "KUVE Finance",
       },
     ],
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "KUVE Finance",
     description: "Portal de clientes de KUVE Finance: tu cartera, tus resultados y tus informes.",
-    images: ["/kuve-logo.jpg"],
+    images: ["/kuve-brain.png"],
   },
   robots: { index: false, follow: false },
 };
