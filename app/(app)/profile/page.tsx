@@ -47,14 +47,9 @@ export default function ProfilePage() {
     const { data: c } = await sb().from("clients").select("*").eq("auth_uid", user.id).maybeSingle();
     setClient(c); setName(c?.name ?? "");
     setTelegram(c?.telegram_handle ?? "");
-    // Programa de referidos. Si el usuario llego con ?ref=, el codigo quedo en
-    // localStorage al registrarse: se canjea ahora, cuando ya existe su fila de
-    // cliente. El RPC lo ignora si ya tenia invitador o si el codigo es el suyo.
-    const pend = typeof window !== "undefined" ? window.localStorage.getItem("kuve_ref") : null;
-    if (pend && c?.id && !c?.referred_by_code) {
-      await sb().rpc("set_referred_by", { p_code: pend });
-      window.localStorage.removeItem("kuve_ref");
-    }
+    // El canje del codigo de invitacion ya NO vive aqui: lo hace
+    // <ReclamaReferido /> desde el layout de (app), para que ocurra en la
+    // primera pantalla que vea el invitado y no solo si abre su Perfil.
     if (c?.id) {
       const [refs, bon, rul, req] = await Promise.all([
         sb().from("referrals").select("id, invited_id, activated_at").eq("referrer_id", c.id),
