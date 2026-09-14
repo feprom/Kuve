@@ -1,9 +1,12 @@
 "use client";
 import { fmtUsd } from "@/lib/format";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtDate } from "@/lib/format";
+import PinPad from "@/components/PinPad";
+
+const BOT_TELEGRAM = "KuveAgent_bot";
 
 type Profile = { id: number; name: string; description: string; vol_target: number; max_leverage: number; min_equity_usdt: number };
 
@@ -32,6 +35,17 @@ export default function ProfilePage() {
   const [loaded, setLoaded] = useState(false);
   const [telegram, setTelegram] = useState("");
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  // Conexion de Telegram por token: enlace t.me generado y espera de la
+  // confirmacion (el linker del EC2 pasa cada 2 min; sondeamos 15 s / 5 min).
+  const [tgEnlace, setTgEnlace] = useState<string | null>(null);
+  const [tgEsperando, setTgEsperando] = useState(false);
+  const tgTimer = useRef<{ iv: ReturnType<typeof setInterval>; fin: ReturnType<typeof setTimeout> } | null>(null);
+  // PIN opcional para clientes con contrasena.
+  const [showPin, setShowPin] = useState(false);
+  const [pinA, setPinA] = useState("");
+  const [pinB, setPinB] = useState("");
+  const [pinRepite, setPinRepite] = useState(false);
+  const [pinErr, setPinErr] = useState<string | null>(null);
 
   async function load() {
    try {
@@ -152,6 +166,78 @@ export default function ProfilePage() {
     setBusy(false);
   }
 
+  function pararEsperaTelegram() {
+    if (tgTimer.current) { clearInterval(tgTimer.current.iv); clearTimeout(tgTimer.current.fin); tgTimer.current = null; }
+    setTgEsperando(false);
+  }
+  // En cuanto aparece el chat_id (tras un load() del sondeo) se deja de esperar.
+  useEffect(() => { if (client?.telegram_chat_id) { pararEsperaTelegram(); setTgEnlace(null); } }, [client?.telegram_chat_id]);
+  useEffect(() => () => pararEsperaTelegram(), []);
+
+  async function conectarTelegram() {
+    setBusy(true); setMsg({});
+    const { data, error } = await sb().rpc("emit_telegram_link_token");
+    setBusy(false);
+    if (error) {
+      const m = error.message ?? "";
+      if (m.includes("ya_conectado")) { setMsg({ ok: "Tu Telegram ya está conectado." }); await load(); }
+      else if (m.includes("sin_cliente")) setMsg({ err: "Tu usuario no tiene cuenta de cliente asociada todavía. Escríbenos para completar el alta." });
+      else setMsg({ err: `No se pudo generar el enlace de Telegram (${m}). Inténtalo de nuevo en un momento.` });
+      return;
+    }
+    const token = String(data ?? "").trim();
+    if (!token) { setMsg({ err: "No se pudo generar el enlace de Telegram. Inténtalo de nuevo." }); return; }
+    const url = `https://t.me/${BOT_TELEGRAM}?start=${token}`;
+    setTgEnlace(url);
+    // Safari/iOS bloquea window.open tras un await: si devuelve null, el boton
+    // "Abrir Telegram" (enlace normal) queda en pantalla como alternativa.
+    try { window.open(url, "_blank", "noopener"); } catch { /* bloqueado */ }
+    pararEsperaTelegram();
+    setTgEsperando(true);
+    const iv = setInterval(() => { load(); }, 15000);
+    const fin = setTimeout(() => pararEsperaTelegram(), 5 * 60 * 1000);
+    tgTimer.current = { iv, fin };
+  }
+
+  function abrirPin() {
+    setPinA(""); setPinB(""); setPinRepite(false); setPinErr(null); setShowPin(true);
+  }
+  function cerrarPin() { setShowPin(false); }
+
+  function pinPrimero(p: string) {
+    if (/^(\d)\1{5}$/.test(p) || ["123456", "654321", "000000"].includes(p)) {
+      setPinErr("Ese PIN es demasiado fácil de adivinar. Elige otro."); setPinA(""); return;
+    }
+    setPinErr(null); setPinRepite(true);
+  }
+  async function pinSegundo(p: string) {
+    if (p !== pinA) {
+      setPinErr("Los dos PIN no coinciden. Vuelve a empezar."); setPinA(""); setPinB(""); setPinRepite(false); return;
+    }
+    setBusy(true); setPinErr(null);
+    try {
+      const res = await fetch("/api/pin/set", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: p }),
+      });
+      let body: { ok?: boolean; error?: string } = {};
+      try { body = await res.json(); } catch { /* sin JSON */ }
+      if (!res.ok || !body.ok) {
+        setPinErr(body.error ?? `No se pudo guardar el PIN (${res.status}). Inténtalo de nuevo.`);
+        setPinA(""); setPinB(""); setPinRepite(false);
+        return;
+      }
+      // Para que /login ya venga con el email puesto y solo pida el PIN.
+      try { if (client?.email) window.localStorage.setItem("kuve_pin_email", String(client.email).toLowerCase()); } catch { /* nada */ }
+      setShowPin(false);
+      setMsg({ ok: client?.pin_set_at ? "PIN cambiado. A partir de ahora entras con el nuevo." : "PIN creado. A partir de ahora entras con tu email y este PIN." });
+      await load();
+    } catch {
+      setPinErr("No se ha podido conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function toggleEnabled() {
     if (client.enabled) setShowDisable(true);
     else await rpcSettings({ p_enabled: true });  // registers an activation REQUEST
@@ -258,7 +344,7 @@ export default function ProfilePage() {
             }}>{pidiendo ? "Enviando…" : "Reenviarme el informe"}</button>
         )}
         {!client.telegram_chat_id && (
-          <p className="note">Para recibirlo, primero escribe al bot desde el apartado de arriba: sin tu chat de Telegram no tenemos a dónde enviarlo.</p>
+          <p className="note">Para recibirlo, primero conecta tu Telegram en el apartado «Avisos por Telegram»: sin tu chat no tenemos a dónde enviarlo.</p>
         )}
       </div>
 
@@ -281,34 +367,66 @@ export default function ProfilePage() {
 
       <div className="card">
         <h2>Avisos por Telegram</h2>
-        {client.telegram_handle ? (
-          client.telegram_chat_id ? (
-            <p className="note">Contacto: <b>@{client.telegram_handle}</b>{" "}
-              <span className="badge on" style={{ marginLeft: 6 }}>CONECTADO</span><br />
-              Te llegan por Telegram las novedades de tu cuenta: aperturas, cierres e incidencias.</p>
-          ) : (
-            <p className="note">Contacto: <b>@{client.telegram_handle}</b>{" "}
-              <span className="badge neutral" style={{ marginLeft: 6 }}>FALTA UN PASO</span><br />
-              Para activar los avisos, escribile cualquier mensaje a{" "}
-              <a href="https://t.me/KuveAgent_bot" target="_blank" rel="noreferrer"><b>@KuveAgent_bot</b></a>{" "}
-              desde tu Telegram. En unos minutos queda conectado y te confirmamos por ahí.</p>
-          )
+        {client.telegram_chat_id ? (
+          <p className="note">
+            {client.telegram_handle && <>Contacto: <b>@{client.telegram_handle}</b>{" "}</>}
+            <span className="badge on" style={{ marginLeft: client.telegram_handle ? 6 : 0 }}>CONECTADO</span><br />
+            Te llegan por Telegram las novedades de tu cuenta: aperturas, cierres e incidencias.</p>
         ) : (
-          <p className="note">Dejanos tu usuario de Telegram y te mandamos las novedades de tu cuenta:
-            aperturas y cierres de posiciones, e incidencias que requieran tu atención.
-            Después escribile un mensaje a{" "}
-            <a href="https://t.me/KuveAgent_bot" target="_blank" rel="noreferrer"><b>@KuveAgent_bot</b></a>{" "}
-            para completar la conexión.</p>
+          <>
+            <p className="note">Recibe por Telegram las novedades de tu cuenta: aperturas y cierres de posiciones,
+              e incidencias que requieran tu atención. Pulsa el botón, se abre el chat con{" "}
+              <b>@{BOT_TELEGRAM}</b> y solo tienes que tocar <b>Iniciar</b>.</p>
+            {tgEsperando ? (
+              <>
+                <p className="note"><span className="badge neutral">ESPERANDO CONFIRMACIÓN…</span><br />
+                  Toca <b>Iniciar</b> en el chat del bot. En un par de minutos queda conectado y esta pantalla se actualiza sola.</p>
+                {tgEnlace && (
+                  <a href={tgEnlace} target="_blank" rel="noreferrer">
+                    <button type="button" className="btn secondary" style={{ marginBottom: 8 }}>Abrir Telegram</button>
+                  </a>
+                )}
+              </>
+            ) : (
+              <button type="button" className="btn" onClick={conectarTelegram} disabled={busy} style={{ marginBottom: 8 }}>
+                {busy ? "Generando enlace…" : tgEnlace ? "Volver a intentarlo" : "Conectar Telegram"}
+              </button>
+            )}
+            <details style={{ marginTop: 10 }}>
+              <summary className="note" style={{ cursor: "pointer" }}>Si el botón no te funciona…</summary>
+              <p className="note">Deja aquí tu usuario de Telegram y después escribe cualquier mensaje a{" "}
+                <a href={`https://t.me/${BOT_TELEGRAM}`} target="_blank" rel="noreferrer"><b>@{BOT_TELEGRAM}</b></a>.
+                {client.telegram_handle && <> Guardado: <b>@{client.telegram_handle}</b>{" "}
+                  <span className="badge neutral">FALTA UN PASO</span></>}</p>
+              <form onSubmit={saveTelegram} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                <label className="field" style={{ marginBottom: 0, minWidth: 200, flex: "1 1 200px" }}>Usuario de Telegram
+                  <input value={telegram} onChange={(e) => setTelegram(e.target.value)}
+                    placeholder="@tu_usuario" autoComplete="off" inputMode="text" />
+                </label>
+                <button className="btn secondary" disabled={busy || telegram.trim().replace(/^@/, "") === (client.telegram_handle ?? "")}>
+                  Guardar
+                </button>
+              </form>
+            </details>
+          </>
         )}
-        <form onSubmit={saveTelegram} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <label className="field" style={{ marginBottom: 0, minWidth: 200, flex: "1 1 200px" }}>Usuario de Telegram
-            <input value={telegram} onChange={(e) => setTelegram(e.target.value)}
-              placeholder="@tu_usuario" autoComplete="off" inputMode="text" />
-          </label>
-          <button className="btn secondary" disabled={busy || telegram.trim().replace(/^@/, "") === (client.telegram_handle ?? "")}>
-            Guardar
-          </button>
-        </form>
+      </div>
+
+      <div className="card">
+        <h2>Acceso con PIN</h2>
+        {client.pin_set_at ? (
+          <>
+            <p className="note"><span className="badge on">PIN ACTIVO</span> desde {fmtDate(client.pin_set_at)}.<br />
+              Entras con tu email y tu PIN de 6 dígitos.</p>
+            <button type="button" className="btn secondary" onClick={abrirPin} disabled={busy}>Cambiar PIN</button>
+          </>
+        ) : (
+          <>
+            <p className="note">Un PIN de 6 dígitos para entrar desde el teléfono sin escribir la contraseña.
+              <b> A partir de ese momento entras con el PIN; tu contraseña actual deja de valer.</b></p>
+            <button type="button" className="btn secondary" onClick={abrirPin} disabled={busy}>Crear PIN</button>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -378,6 +496,29 @@ export default function ProfilePage() {
         <a href="/admin"><button className="btn" style={{ marginBottom: 10 }}>Panel de administración</button></a>
       )}
       <button className="btn secondary" onClick={logout}>Cerrar sesión</button>
+
+      {showPin && (
+        <div className="modal-back" onClick={() => { if (!busy) cerrarPin(); }}
+          onKeyDown={(e) => { if (e.key === "Escape" && !busy) cerrarPin(); }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pin-title"
+            onClick={(e) => e.stopPropagation()}>
+            <h3 id="pin-title">{pinRepite ? "Repite tu PIN" : client.pin_set_at ? "Nuevo PIN" : "Crea tu PIN"}</h3>
+            {!pinRepite && !client.pin_set_at && (
+              <p><b>A partir de ahora entras con este PIN; tu contraseña actual deja de valer.</b> Elige 6 dígitos que solo tú conozcas.</p>
+            )}
+            {!pinRepite && client.pin_set_at && <p>Elige 6 dígitos que solo tú conozcas. El PIN anterior dejará de valer.</p>}
+            {pinRepite && <p>Escríbelo otra vez para confirmar que lo recuerdas.</p>}
+            {pinRepite ? (
+              <PinPad key="pinB" value={pinB} onChange={setPinB} onComplete={pinSegundo} label="Repite el PIN" disabled={busy} autoFocus />
+            ) : (
+              <PinPad key="pinA" value={pinA} onChange={setPinA} onComplete={pinPrimero} label="Tu PIN" disabled={busy} autoFocus />
+            )}
+            {pinErr && <div className="error-msg" role="alert">{pinErr}</div>}
+            {busy && <p className="note" style={{ textAlign: "center" }}>Guardando…</p>}
+            <button type="button" className="btn secondary" style={{ marginTop: 12 }} onClick={cerrarPin} disabled={busy}>Cancelar</button>
+          </div>
+        </div>
+      )}
 
       {showDisable && (
         <div className="modal-back" onClick={() => setShowDisable(false)}

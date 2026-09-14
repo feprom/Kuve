@@ -6,6 +6,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { fmtUsd, fmtPct, fmtDate, pnlClass } from "@/lib/format";
 import Sparkline from "@/components/Sparkline";
 import PerfChart from "@/components/PerfChart";
+import Invitaciones from "@/components/Invitaciones";
 import { attributeIncome, Attribution } from "@/lib/pnl";
 import {
   detectarFlujos, curvaTwr, maxDrawdown, seriePnl, sanearSnaps, ultimoPorDia,
@@ -16,7 +17,9 @@ import { fetchSnaps, fetchIncome, fetchTrades, fetchOrdersFilled, fetchPositions
 import { eventLabel } from "@/lib/events";
 
 type Run = { id: number; bar_time: string; started_at: string; finished_at: string | null; n_clients: number; n_ok: number; n_failed: number };
-type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null };
+type Cli = { id: string; name: string; email: string | null; mode: string; enabled: boolean; activation_requested: boolean; key_status: string; created_at: string; risk_profile_id: number | null; risk_profiles: { name: string } | null;
+  // Acceso: auth_uid null = sin usuario (candidato a invitacion); telegram_chat_id y pin_set_at para los badges TG/PIN.
+  auth_uid: string | null; telegram_chat_id: number | string | null; pin_set_at: string | null };
 type Snap = { client_id: string; ts: string; equity: number; start_equity: number; realized_cum: number; exposure_notional: number; open_positions: number; dd_pct: number; unrealized_pnl: number };
 type Movs = { flujos: Flujo[]; curva: { x: number; y: number }[]; serie: { x: number; pnl: number; base: number }[] };
 type Pos = { id: number; client_id: string; bar_time: string; symbol: string; side: string; pos_amt: number; entry_price: number; price: number };
@@ -342,6 +345,8 @@ export default function Admin() {
         </div>
       </div>
 
+      <Invitaciones sinAcceso={clients.filter((c) => !c.auth_uid).map((c) => ({ id: c.id, name: c.name, email: c.email }))} />
+
       {(refs.length > 0 || solicitudes.length > 0) && (
         <details className="card">
           <summary><h2 style={{ display: "inline" }}>Referidos y solicitudes</h2></summary>
@@ -395,6 +400,8 @@ export default function Admin() {
                   {c.activation_requested && !c.enabled && <span className="badge on">SOLICITA ALTA</span>}
                   {c.key_status !== "valid" && <span className="badge neutral">sin claves</span>}
                   {c.mode === "testnet" && <span className="badge neutral">testnet</span>}
+                  <span className={`badge ${c.telegram_chat_id ? "on" : "neutral"}`} title={c.telegram_chat_id ? "Telegram conectado" : "Sin Telegram: no recibe avisos"}>TG</span>
+                  <span className={`badge ${c.pin_set_at ? "on" : "neutral"}`} title={c.pin_set_at ? `PIN activo desde ${fmtDate(c.pin_set_at)}` : "Entra con contraseña (sin PIN)"}>PIN</span>
                   {(() => {
                     const h = staleHoras(c.id);
                     return h != null && h > 3

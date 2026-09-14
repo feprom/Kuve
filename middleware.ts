@@ -10,7 +10,9 @@ const PUBLIC_PATHS = ["/login", "/register", "/forgot"];
 // recuperacion ABRE SESION antes de llegar, asi que la regla "con sesion ->
 // dashboard" rebotaria al cliente justo antes de dejarle escribir la contrasena
 // nueva, y la recuperacion no funcionaria nunca.
-const OPEN_PATHS = ["/reset"];
+// `/invite` tambien: el enlace lo abre alguien SIN sesion, y tras crear el PIN
+// ya la tiene (cookie de /api/invite/accept) y aun le queda el paso de instalar.
+const OPEN_PATHS = ["/reset", "/invite"];
 
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({ request: req });
