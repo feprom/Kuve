@@ -398,7 +398,7 @@ export default function Admin() {
                 <div className="cc-badges">
                   <span className={`badge ${c.enabled ? "on" : "off"}`}>{c.enabled ? "ON" : "OFF"}</span>
                   {c.activation_requested && !c.enabled && <span className="badge on">SOLICITA ALTA</span>}
-                  {c.key_status !== "valid" && <span className="badge neutral">sin claves</span>}
+                  {c.key_status !== "valid" && <span className={`badge ${c.key_status === "invalid" ? "off" : "neutral"}`}>{c.key_status === "invalid" ? "claves rechazadas" : c.key_status === "pending" ? "verificando claves" : "sin claves"}</span>}
                   {c.mode === "testnet" && <span className="badge neutral">testnet</span>}
                   <span className={`badge ${c.telegram_chat_id ? "on" : "neutral"}`} title={c.telegram_chat_id ? "Telegram conectado" : "Sin Telegram: no recibe avisos"}>TG</span>
                   <span className={`badge ${c.pin_set_at ? "on" : "neutral"}`} title={c.pin_set_at ? `PIN activo desde ${fmtDate(c.pin_set_at)}` : "Entra con contraseña (sin PIN)"}>PIN</span>

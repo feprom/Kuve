@@ -40,6 +40,11 @@ export default function ProfilePage() {
   const [tgEnlace, setTgEnlace] = useState<string | null>(null);
   const [tgEsperando, setTgEsperando] = useState(false);
   const tgTimer = useRef<{ iv: ReturnType<typeof setInterval>; fin: ReturnType<typeof setTimeout> } | null>(null);
+  // Verificacion real de las claves: la hace el servidor de trading (unica IP
+  // que Binance acepta) y deja el veredicto en key_checks. Sondeamos 3 s / 90 s.
+  const [keyCheck, setKeyCheck] = useState<any>(null);
+  const [verificando, setVerificando] = useState(false);
+  const kcTimer = useRef<{ iv: ReturnType<typeof setInterval>; fin: ReturnType<typeof setTimeout> } | null>(null);
   // PIN opcional para clientes con contrasena.
   const [showPin, setShowPin] = useState(false);
   const [pinA, setPinA] = useState("");
@@ -80,6 +85,10 @@ export default function ProfilePage() {
     setProfiles(p ?? []);
     // key metadata is not directly readable (no RLS policy) — key_status lives on clients
     setCreds(c?.key_status === "valid" ? { status: "valid" } : null);
+    if (c?.id) {
+      const { data: kc } = await sb().from("key_checks").select("*").eq("client_id", c.id).maybeSingle();
+      setKeyCheck(kc ?? null);
+    }
    } catch (e: any) {
     setLoadErr(e?.message ?? String(e));
    } finally {
@@ -127,8 +136,16 @@ export default function ProfilePage() {
       const r = await callEdge("store-binance-keys", { api_key: apiKey, api_secret: apiSecret });
       if (r.error) setMsg({ err: r.error });
       else {
-        setMsg({ ok: `Claves guardadas (····${r.last4}) · red detectada: ${r.network === "real" ? "REAL (mainnet)" : "TESTNET"}${r.warning ? ` · ${r.warning}` : ""}` });
-        setApiKey(""); setApiSecret(""); setShowKeys(false);
+        // La edge function no puede verificar (Binance solo acepta la IP del
+        // servidor de trading): pedimos la verificacion real y esperamos.
+        setApiKey(""); setApiSecret("");
+        const { error } = await sb().rpc("request_key_check");
+        if (error) {
+          setMsg({ err: `Claves guardadas, pero no se pudo pedir la verificación (${error.message}).` });
+        } else {
+          setMsg({});
+          esperarVerificacion();
+        }
         await load();
       }
     } catch (err) {
@@ -165,6 +182,32 @@ export default function ProfilePage() {
     else { setMsg({ ok: limpio ? `Contacto de Telegram guardado: @${limpio}.` : "Contacto de Telegram eliminado." }); await load(); }
     setBusy(false);
   }
+
+  function pararEsperaClaves() {
+    if (kcTimer.current) { clearInterval(kcTimer.current.iv); clearTimeout(kcTimer.current.fin); kcTimer.current = null; }
+    setVerificando(false);
+  }
+  function esperarVerificacion() {
+    pararEsperaClaves();
+    setVerificando(true);
+    const iv = setInterval(() => { load(); }, 3000);
+    const fin = setTimeout(() => {
+      pararEsperaClaves();
+      setMsg({ err: "El servidor no respondió a tiempo. Tus claves quedaron guardadas; vuelve a abrir esta pantalla en un minuto." });
+    }, 90 * 1000);
+    kcTimer.current = { iv, fin };
+  }
+  // En cuanto llega el veredicto, dejamos de sondear. Si falla, el formulario
+  // se reabre para corregir en el acto.
+  useEffect(() => {
+    if (verificando && keyCheck?.checked_at) {
+      pararEsperaClaves();
+      if (keyCheck.ok) setShowKeys(false);
+      else setShowKeys(true);
+    }
+    /* eslint-disable-next-line */
+  }, [keyCheck?.checked_at]);
+  useEffect(() => () => pararEsperaClaves(), []);
 
   function pararEsperaTelegram() {
     if (tgTimer.current) { clearInterval(tgTimer.current.iv); clearTimeout(tgTimer.current.fin); tgTimer.current = null; }
@@ -285,7 +328,7 @@ export default function ProfilePage() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, fontSize: 13 }}>
           <span className={`badge ${client.enabled ? "on" : "off"}`}>{client.enabled ? "BOT ACTIVO" : "BOT PARADO"}</span>
           <span className="badge neutral">modo: {client.mode}</span>
-          <span className={`badge ${client.key_status === "valid" ? "on" : "off"}`}>claves: {client.key_status}</span>
+          <span className={`badge ${client.key_status === "valid" ? "on" : client.key_status === "pending" ? "neutral" : "off"}`}>claves: {({ valid: "válidas", pending: "verificando", invalid: "rechazadas", missing: "sin cargar" } as Record<string, string>)[client.key_status] ?? client.key_status}</span>
         </div>
         <button className="btn secondary" disabled={busy || name === client.name}
           onClick={() => rpcSettings({ p_name: name })}>Guardar nombre</button>
@@ -431,9 +474,18 @@ export default function ProfilePage() {
 
       <div className="card">
         <h2>Claves API de Binance</h2>
+        {(verificando || client.key_status === "pending") && !keyCheck?.checked_at && (
+          <p className="note"><span className="badge neutral">VERIFICANDO CON BINANCE…</span> El servidor de trading está probando tus claves. Suele tardar menos de 10 segundos.</p>
+        )}
+        {keyCheck?.checked_at && (
+          <p className="note" style={{ color: keyCheck.ok ? undefined : "var(--danger, #e5484d)" }}>
+            <span className={`badge ${keyCheck.ok ? "on" : "off"}`}>{keyCheck.ok ? "VERIFICADAS" : "RECHAZADAS"}</span>{" "}
+            {keyCheck.message} <span style={{ opacity: .6 }}>({fmtDate(keyCheck.checked_at)})</span>
+          </p>
+        )}
         {creds ? (
           <>
-            <p className="note">Claves configuradas y validadas. Última verificación: {fmtDate(client.updated_at) !== "—" ? fmtDate(client.updated_at) : "reciente"}.</p>
+            <p className="note">Claves configuradas y verificadas por el servidor.</p>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn secondary" onClick={() => setShowKeys(true)} disabled={busy}>Reemplazar</button>
               <button className="btn danger" onClick={deleteKeys} disabled={busy}>Eliminar</button>
@@ -483,7 +535,7 @@ export default function ProfilePage() {
               Solicitar activación
             </button>
             {client.key_status !== "valid" && (
-              <p className="note">Configura primero tus claves API.</p>
+              <p className="note">{client.key_status === "invalid" ? "Binance rechazó tus claves: corrígelas arriba." : client.key_status === "pending" ? "Esperando la verificación de tus claves." : "Configura primero tus claves API."}</p>
             )}
           </>
         )}

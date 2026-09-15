@@ -26,6 +26,8 @@ export function eventLabel(e: EventRow): string {
     case "drift_contradicts_signal": return s ? `Posición en ${s} contradice la señal` : "Posición contradice la señal";
     case "keys_stored":              return "Claves API guardadas";
     case "keys_invalid":             return "Claves API inválidas";
+    case "keys_verified":            return "Claves API verificadas por el servidor";
+    case "keys_rejected":            return "Binance rechazó las claves API";
     case "admin_enabled":            return "Bot activado";
     case "admin_disabled":           return "Bot pausado";
     case "watchdog_alert":           return "Alerta del watchdog: el bot dejó de reportar";
