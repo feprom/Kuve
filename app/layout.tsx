@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://kuve-wine.vercel.app"),
+  metadataBase: new URL("https://finance.ku-ve.com"),
   title: "KUVE Finance",
   description: "Portal de clientes de KUVE Finance: tu cartera, tus resultados y tus informes.",
   applicationName: "KUVE Finance",
