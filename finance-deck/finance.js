@@ -296,6 +296,8 @@
   const rentProfile = document.querySelector("#rent-profile");
   const rentChartButton = document.querySelector("#rent-graph");
   const rentCutoff = document.querySelector("#rent-cutoff");
+  const rentCalendarProfile = document.querySelector("#rent-calendar-profile");
+  const rentCalendarTotal = document.querySelector("#rent-calendar-total");
   const incomeIds = ["2", "4", "5"];
   const frequencies = [
     { months: 3, label: "Trimestral", color: colors.base },
@@ -307,6 +309,7 @@
 
   function incomeRun(returns, closes, initial, interval) {
     let balance = initial;
+    let totalCents = 0;
     const balances = [initial];
     const payments = new Map();
     returns.forEach((rate, index) => {
@@ -314,44 +317,57 @@
       const date = new Date(closes[index + 1]);
       const completedMonth = date.getUTCMonth() || 12;
       if (date.getUTCDate() === 1 && date.getUTCHours() === 0 && completedMonth % interval === 0) {
-        const withdrawal = Math.floor(Math.max(0, balance - initial) * 100) / 100;
-        payments.set(completedMonth, withdrawal);
-        balance -= withdrawal;
+        const cents = Math.floor(Math.max(0, balance - initial) * 100);
+        payments.set(completedMonth, cents);
+        totalCents += cents;
+        balance -= cents / 100;
       }
       balances.push(balance);
     });
-    return { balances, payments };
+    return { balances, payments, totalCents };
   }
 
   function updateIncome() {
     if (!rentCapital.validity.valid) return undefined;
     const annual = rentals[rentYear.value];
     const initial = rentCapital.valueAsNumber;
+    const selectedProfile = rentProfile.value;
     let detail;
     for (const profile of incomeIds) {
       const row = plans.querySelector(`[data-rent-profile="${profile}"]`);
       const risk = annual.risk[profile];
+      row.setAttribute("aria-current", String(profile === selectedProfile));
       row.querySelector(".plan-risk").textContent = `${pt ? "Queda máx." : "Caída máx."} ${signedAmount.format(risk.dd)}%`;
       const results = frequencies.map((frequency) => {
         const run = incomeRun(annual.returns[profile], annual.dates, initial, frequency.months);
-        const total = [...run.payments.values()].reduce((sum, amount) => sum + amount, 0);
-        row.querySelector(`[data-rent-period="${frequency.months}"]`).textContent =
-          run.payments.size ? formattedAmount.format(total) : pending;
+        run.totalLabel = run.payments.size ? formattedAmount.format(run.totalCents / 100) : pending;
+        row.querySelector(`[data-rent-period="${frequency.months}"]`).textContent = run.totalLabel;
         return run;
       });
-      if (profile === rentProfile.value) detail = results;
+      if (profile === selectedProfile) detail = results;
     }
 
+    rentCalendarProfile.textContent = rentProfile.selectedOptions[0].textContent;
+    frequencies.forEach((frequency, index) => {
+      rentCalendarTotal.querySelector(`[data-rent-period="${frequency.months}"]`).textContent = detail[index].totalLabel;
+    });
     quarterEnds.forEach((month) => {
       const row = plans.querySelector(`[data-rent-month="${month}"]`);
       frequencies.forEach((frequency, index) => {
-        const amount = detail[index].payments.get(month);
-        row.querySelector(`[data-rent-period="${frequency.months}"]`).textContent =
-          amount === undefined ? "—" : formattedAmount.format(amount);
+        const cents = detail[index].payments.get(month);
+        const cell = row.querySelector(`[data-rent-period="${frequency.months}"]`);
+        if (month % frequency.months !== 0) {
+          cell.textContent = "—";
+        } else {
+          cell.textContent = cents === undefined ? pending : formattedAmount.format(cents / 100);
+        }
       });
     });
 
     const year = rentYear.value;
+    rentCalendarTotal.querySelector("th").textContent = year === "2026"
+      ? (pt ? "Total parcial" : "Total al corte")
+      : (pt ? "Total do ano" : "Total del año");
     rentCutoff.textContent = year === "2026"
       ? (pt ? "1º jan.–22 nov. 2026, 19h UTC. Fechamentos de dezembro pendentes." : "1 ene.–22 nov. 2026, 19:00 UTC. Cierres de diciembre pendientes.")
       : (pt ? `Ano completo de ${year}.` : `Año completo ${year}.`);

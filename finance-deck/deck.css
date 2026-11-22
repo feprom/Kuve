@@ -511,6 +511,8 @@ dialog::backdrop { background: #091d2cc9; }
 .plan-table { background: #fff; }
 .plan-table caption { color: var(--ink); }
 .rent-tables .plan-table th:first-child { width: 29%; }
+.rent-tables tr[aria-current="true"], .rent-tables tfoot { background: #e4eef3; }
+.rent-tables tfoot { font-weight: 650; }
 .plan-risk { display: block; color: var(--muted); font-size: .88em; font-weight: 400; }
 .savings-table { max-width: 720px; }
 .savings-table th:first-child { width: 20%; }
@@ -524,6 +526,7 @@ dialog::backdrop { background: #091d2cc9; }
   .plan-switch .control { min-height: 32px; padding-block: 3px; }
   .plan-panel { gap: 5px; }
   .plan-graph { min-height: 36px; }
+  .rent-tables .plan-table th, .rent-tables .plan-table td { padding-block: 3px; }
   .rent-tables .plan-table:first-child th:first-child { width: 32%; }
 }
 

@@ -11,10 +11,10 @@
   <meta property="og:image" content="https://ku-ve.us/finance-deck/kuve-finance.jpg">
   <link rel="canonical" href="https://ku-ve.us/Presentacao.html">
   <link rel="alternate" hreflang="es" href="https://ku-ve.us/Presentacion.html">
-  <link rel="stylesheet" href="finance-deck/deck.css?v=binance-20261122">
+  <link rel="stylesheet" href="finance-deck/deck.css?v=retiros-20261122">
   <script src="finance-deck/deck.js?v=interactivo-20261122" defer></script>
   <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
-  <script src="finance-deck/finance.js?v=ahorro-renta-20261122" defer></script>
+  <script src="finance-deck/finance.js?v=retiros-20261122" defer></script>
   <title>DPF Autocustodiado | KUVE Finance</title>
 </head>
 <body>
@@ -207,38 +207,42 @@
       <section id="rent-panel" class="plan-panel" data-plan-panel="rent" aria-label="Simulação de saques">
         <div class="finance-form plan-controls js-only" id="rent-controls">
           <label>Ano
-            <select id="rent-year"><option value="2024">2024</option><option value="2025">2025</option><option value="2026" selected>2026</option></select>
+            <select id="rent-year"><option value="2024" selected>2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
           </label>
           <label>Capital-base (USDT)
-            <input id="rent-capital" type="number" value="10000" min="1" max="100000000" step="0.01" inputmode="decimal" required>
+            <input id="rent-capital" type="number" value="1000" min="1" max="100000000" step="0.01" inputmode="decimal" required>
           </label>
-          <label>Perfil do calendário <select id="rent-profile"><option value="2">KV-2 Conservador</option><option value="4" selected>KV-4 Base</option><option value="5">KV-5 Agressivo</option></select></label>
+          <label>Perfil do calendário <select id="rent-profile"><option value="2" selected>KV-2 Conservador</option><option value="4">KV-4 Base</option><option value="5">KV-5 Agressivo</option></select></label>
           <button class="action secondary plan-graph" id="rent-graph" type="button" aria-haspopup="dialog">Ver gráfico</button>
         </div>
-        <p class="note plan-cutoff" id="rent-cutoff" aria-live="polite">1º jan.–22 nov. 2026, 19h UTC. Fechamentos de dezembro pendentes.</p>
+        <p class="note plan-cutoff" id="rent-cutoff" aria-live="polite">Ano completo de 2024.</p>
         <div class="finance-split rent-tables">
           <table class="finance-table plan-table">
-            <caption>Total simulado por perfil (USDT)</caption>
+            <caption>Total sacado por perfil (USDT)</caption>
             <thead><tr><th scope="col">Perfil</th><th scope="col" class="number">Trimestral</th><th scope="col" class="number">Semestral</th><th scope="col" class="number">Anual</th></tr></thead>
             <tbody>
-            <tr data-rent-profile="2"><th scope="row"><strong>KV-2 Conservador</strong><span class="plan-risk">Queda máx. −6,26%</span></th><td data-rent-period="3">1.909,01</td><td data-rent-period="6">1.858,49</td><td data-rent-period="12">Pendente</td></tr>
-            <tr data-rent-profile="4"><th scope="row"><strong>KV-4 Base</strong><span class="plan-risk">Queda máx. −9,66%</span></th><td data-rent-period="3">2.965,51</td><td data-rent-period="6">2.985,92</td><td data-rent-period="12">Pendente</td></tr>
-            <tr data-rent-profile="5"><th scope="row"><strong>KV-5 Agressivo</strong><span class="plan-risk">Queda máx. −11,58%</span></th><td data-rent-period="3">3.738,01</td><td data-rent-period="6">3.828,79</td><td data-rent-period="12">Pendente</td></tr>
+              <tr data-rent-profile="2" aria-current="true"><th scope="row"><strong>KV-2 Conservador</strong><span class="plan-risk">Queda máx. −4,83%</span></th><td data-rent-period="3">256,66</td><td data-rent-period="6">265,29</td><td data-rent-period="12">281,58</td></tr>
+              <tr data-rent-profile="4" aria-current="false"><th scope="row"><strong>KV-4 Base</strong><span class="plan-risk">Queda máx. −7,44%</span></th><td data-rent-period="3">401,49</td><td data-rent-period="6">422,47</td><td data-rent-period="12">463,96</td></tr>
+              <tr data-rent-profile="5" aria-current="false"><th scope="row"><strong>KV-5 Agressivo</strong><span class="plan-risk">Queda máx. −10,01%</span></th><td data-rent-period="3">458,25</td><td data-rent-period="6">481,19</td><td data-rent-period="12">538,38</td></tr>
             </tbody>
           </table>
           <table class="finance-table plan-table">
-            <caption>Calendário de saques simulados (USDT)</caption>
-            <thead><tr><th scope="col">Fechamento</th><th scope="col" class="number">Trimestral</th><th scope="col" class="number">Semestral</th><th scope="col" class="number">Anual</th></tr></thead>
+            <caption>Saques por data · <span id="rent-calendar-profile">KV-2 Conservador</span></caption>
+            <thead><tr><th scope="col">Data</th><th scope="col" class="number">Trimestral</th><th scope="col" class="number">Semestral</th><th scope="col" class="number">Anual</th></tr></thead>
             <tbody>
-            <tr data-rent-month="3"><th scope="row">Março</th><td data-rent-period="3">1.617,11</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
-            <tr data-rent-month="6"><th scope="row">Junho</th><td data-rent-period="3">1.178,27</td><td data-rent-period="6">2.985,92</td><td data-rent-period="12">—</td></tr>
-            <tr data-rent-month="9"><th scope="row">Setembro</th><td data-rent-period="3">170,13</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
-            <tr data-rent-month="12"><th scope="row">Dezembro</th><td data-rent-period="3">—</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+              <tr data-rent-month="3"><th scope="row">31 mar.</th><td data-rent-period="3">59,76</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+              <tr data-rent-month="6"><th scope="row">30 jun.</th><td data-rent-period="3">34,72</td><td data-rent-period="6">96,55</td><td data-rent-period="12">—</td></tr>
+              <tr data-rent-month="9"><th scope="row">30 set.</th><td data-rent-period="3">86,49</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+              <tr data-rent-month="12"><th scope="row">31 dez.</th><td data-rent-period="3">75,69</td><td data-rent-period="6">168,74</td><td data-rent-period="12">281,58</td></tr>
             </tbody>
+            <tfoot>
+              <tr id="rent-calendar-total"><th scope="row">Total do ano</th><td data-rent-period="3">256,66</td><td data-rent-period="6">265,29</td><td data-rent-period="12">281,58</td></tr>
+            </tfoot>
           </table>
         </div>
-        <p class="note">Cada frequência é independente. Saca-se só o excedente. 0,00 indica falta de excedente e — falta de fechamento.</p>
-        <p class="note">Antes de taxas e financiamento. Ouro, prata e WTI com preços de referência até jun. 2026. Queda horária sem saques.</p>
+        <p class="note"><strong>Condições de saque.</strong> Saca-se só o excedente sobre o capital inicial. O prazo máximo entre saques programados é de 12 meses.</p>
+        <p class="note">Antes da divisão dos lucros, taxas e financiamento. 0,00 = sem excedente. — = sem saque previsto. Pendente = por fechar.</p>
+        <p class="note">Ouro, prata e WTI com preços de referência até jun. 2026. Queda horária sem saques.</p>
       </section>
       <section id="savings-panel" class="plan-panel" data-plan-panel="savings" aria-label="Projeção de poupança" hidden>
         <div class="finance-form plan-controls js-only" id="savings-controls">
