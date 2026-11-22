@@ -14,7 +14,7 @@
   <link rel="alternate" hreflang="en" href="https://ku-ve.us/Presentation.html">
   <link rel="alternate" hreflang="pt-BR" href="https://ku-ve.us/Presentacao.html">
   <link rel="alternate" hreflang="x-default" href="https://ku-ve.us/">
-  <link rel="stylesheet" href="finance-deck/deck.css?v=locales-20261122">
+  <link rel="stylesheet" href="finance-deck/deck.css?v=reparto-neto-20261122">
   <script src="finance-deck/deck.js?v=locales-20261122" defer></script>
   <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
   <script src="finance-deck/finance.js?v=ahorro-historico-20261122" defer></script>
@@ -349,7 +349,7 @@
         <div><dt>Saldo inicial</dt><dd>12.774,61</dd></div>
         <div><dt>Capital neto del período</dt><dd>23.259,56</dd></div>
         <div><dt>Saldo final</dt><dd>25.473,37</dd></div>
-        <div><dt>Resultado de las cuentas</dt><dd><strong>+2.213,80</strong></dd></div>
+        <div><dt>Resultado neto de trading</dt><dd><strong>+2.213,80</strong></dd></div>
         <div><dt>Retorno sobre capital ponderado</dt><dd><strong>+8,80%</strong></dd></div>
       </dl>
       <div class="finance-split">
@@ -370,7 +370,7 @@
         </div>
       </div>
       <p class="note">Hasta el 13 nov., 19:00 UTC, predominaba KV-2. Resultado: −391,12. Después del corte: +2.604,93.</p>
-      <p class="note">Capital neto = saldo inicial + 16.040,81 de aportes − 5.555,86 de retiros. Resultado = saldo final − capital neto. Incluye PnL abierto. Transferencias en USDT a paridad, antes de cargos de KUVE. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Descargar conciliación (CSV)</a></p>
+      <p class="note">Capital neto = saldo inicial + 16.040,81 de aportes − 5.555,86 de retiros. Resultado = saldo final − capital neto. Incluye PnL abierto y cargos del exchange reflejados en el saldo. Transferencias en USDT a paridad. Antes del reparto con KUVE. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Descargar conciliación (CSV)</a></p>
     </section>
     <section class="slide finance-slide" id="operaciones" data-topic="Cierres de operaciones">
       <header class="headline">
@@ -415,13 +415,15 @@
         <h2 tabindex="-1">Contrato con KUVE Finance</h2>
         <p class="lead">Inversor y KUVE formalizan un contrato de servicios. Las cifras y simulaciones de esta presentación sirven como referencia para acordar los objetivos.</p>
       </header>
-      <dl class="finance-stats compact">
-        <div><dt>Costo de operación cobrado por KUVE.</dt><dd>0 USDT</dd></div>
-        <div><dt>De la ganancia neta para el inversor.</dt><dd>70%</dd></div>
-        <div><dt>De la ganancia neta para KUVE.</dt><dd>30%</dd></div>
-      </dl>
-      <p class="note"><strong>Ganancia neta.</strong> Excedente sobre el capital inicial, después de las comisiones y la financiación del exchange que correspondan. El reparto se aplica al retirar la ganancia.</p>
-      <p class="note"><strong>Pago al retirar.</strong> Solo el titular puede retirar desde su cuenta. Al retirar, paga a KUVE su 30% con la ganancia neta. El plazo máximo entre retiros programados es de 12 meses.</p>
+      <figure class="profit-share">
+        <figcaption>Reparto de 100 USDT de ganancia neta</figcaption>
+        <dl class="profit-split">
+          <div><dt>Inversor<span>70 USDT</span></dt><dd>70%</dd></div>
+          <div><dt>KUVE<span>30 USDT</span></dt><dd>30%</dd></div>
+        </dl>
+      </figure>
+      <p class="note"><strong>Ganancia neta.</strong> Las cifras del gráfico son netas de comisiones de trading, financiación y demás costos asociados del exchange. Se reparte el excedente sobre el capital inicial.</p>
+      <p class="note"><strong>KUVE cobra 0 USDT de costo operativo.</strong> Solo el titular puede retirar. Al hacerlo, paga a KUVE su 30% de la ganancia neta. Máximo de 12 meses entre retiros programados.</p>
     </section>
     <section class="slide contact" id="slide-10" data-alias="slide-8 slide-9" data-topic="Contacto">
       <div class="split">

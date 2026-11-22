@@ -566,6 +566,29 @@ dialog::backdrop { background: #091d2cc9; }
 .trade-title strong { color: var(--result-color); font: 650 clamp(1.2rem, 2.3cqw, 2rem)/1 var(--mono); }
 .trade-impact strong { color: var(--ink); }
 
+.profit-share { display: grid; gap: 8px; margin: 0; }
+.profit-share figcaption { color: var(--ink); font-size: var(--detail); font-weight: 650; }
+.profit-split {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  overflow: hidden;
+  border-radius: 12px;
+  color: #fff;
+}
+.profit-split > div {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: center;
+  gap: 5px;
+  min-height: 96px;
+  padding: clamp(9px, 1.65cqw, 22px);
+  background: var(--blue);
+}
+.profit-split > div:last-child { background: var(--navy); }
+.profit-split dd { font: 650 clamp(1.65rem, 4.2cqw, 3.4rem)/1 var(--mono); }
+.profit-split dt { font-size: var(--small); line-height: 1.28; }
+.profit-split dt span { display: block; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 .plan-switch { display: flex; gap: 5px; }
 .plan-switch .control { min-height: 36px; padding-inline: 14px; border-color: var(--line); }
 .plan-switch .control[aria-pressed="true"] { background: var(--navy); color: white; border-color: var(--navy); }

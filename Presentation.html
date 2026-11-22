@@ -14,7 +14,7 @@
   <link rel="alternate" hreflang="en" href="https://ku-ve.us/Presentation.html">
   <link rel="alternate" hreflang="pt-BR" href="https://ku-ve.us/Presentacao.html">
   <link rel="alternate" hreflang="x-default" href="https://ku-ve.us/">
-  <link rel="stylesheet" href="finance-deck/deck.css?v=locales-20261122">
+  <link rel="stylesheet" href="finance-deck/deck.css?v=reparto-neto-20261122">
   <script src="finance-deck/deck.js?v=locales-20261122" defer></script>
   <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
   <script src="finance-deck/finance.js?v=ahorro-historico-20261122" defer></script>
@@ -349,7 +349,7 @@
         <div><dt>Starting balance</dt><dd>12,774.61</dd></div>
         <div><dt>Net capital</dt><dd>23,259.56</dd></div>
         <div><dt>Ending balance</dt><dd>25,473.37</dd></div>
-        <div><dt>Account P&amp;L</dt><dd><strong>+2,213.80</strong></dd></div>
+        <div><dt>Net trading P&amp;L</dt><dd><strong>+2,213.80</strong></dd></div>
         <div><dt>Return on weighted capital</dt><dd><strong>+8.80%</strong></dd></div>
       </dl>
       <div class="finance-split">
@@ -370,7 +370,7 @@
         </div>
       </div>
       <p class="note">KV-2 was the main profile through Nov 13 at 19:00 UTC. P&amp;L through that cutoff was −391.12, followed by +2,604.93.</p>
-      <p class="note">Net capital is the starting balance plus 16,040.81 in deposits minus 5,555.86 in withdrawals. P&amp;L is the ending balance minus net capital, including open positions. USDT transfers are valued at par. KUVE charges are excluded. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Download reconciliation (CSV)</a></p>
+      <p class="note">Net capital is the starting balance plus 16,040.81 in deposits minus 5,555.86 in withdrawals. P&amp;L is the ending balance minus net capital. It includes open positions and exchange charges reflected in the balance. USDT transfers are valued at par. Figures are before KUVE’s profit share. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Download reconciliation (CSV)</a></p>
     </section>
     <section class="slide finance-slide" id="operaciones" data-topic="Closed trades">
       <header class="headline">
@@ -415,13 +415,15 @@
         <h2 tabindex="-1">Agreement with KUVE Finance</h2>
         <p class="lead">The investor and KUVE sign a service agreement. The figures and simulations in this presentation serve as a reference for setting objectives.</p>
       </header>
-      <dl class="finance-stats compact">
-        <div><dt>Operating fee charged by KUVE.</dt><dd>0 USDT</dd></div>
-        <div><dt>Of net profit goes to the investor.</dt><dd>70%</dd></div>
-        <div><dt>Of net profit goes to KUVE.</dt><dd>30%</dd></div>
-      </dl>
-      <p class="note"><strong>Net profit.</strong> Surplus above starting capital after any applicable exchange fees and funding. Profit is shared at withdrawal.</p>
-      <p class="note"><strong>Payment at withdrawal.</strong> Only the account holder can withdraw from their account. At withdrawal, the holder pays KUVE its 30% from net profit. Scheduled withdrawals are at most 12 months apart.</p>
+      <figure class="profit-share">
+        <figcaption>How 100 USDT of net profit is split</figcaption>
+        <dl class="profit-split">
+          <div><dt>Investor<span>70 USDT</span></dt><dd>70%</dd></div>
+          <div><dt>KUVE<span>30 USDT</span></dt><dd>30%</dd></div>
+        </dl>
+      </figure>
+      <p class="note"><strong>Net profit.</strong> The amounts shown are after trading commissions, funding, and other applicable exchange costs. The split applies to profit above starting capital.</p>
+      <p class="note"><strong>KUVE charges 0 USDT in operating fees.</strong> Only the account holder can withdraw. At withdrawal, the holder pays KUVE its 30% of net profit. Scheduled withdrawals are at most 12 months apart.</p>
     </section>
     <section class="slide contact" id="slide-10" data-alias="slide-8 slide-9" data-topic="Contact">
       <div class="split">

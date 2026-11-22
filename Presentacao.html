@@ -14,7 +14,7 @@
   <link rel="alternate" hreflang="en" href="https://ku-ve.us/Presentation.html">
   <link rel="alternate" hreflang="pt-BR" href="https://ku-ve.us/Presentacao.html">
   <link rel="alternate" hreflang="x-default" href="https://ku-ve.us/">
-  <link rel="stylesheet" href="finance-deck/deck.css?v=locales-20261122">
+  <link rel="stylesheet" href="finance-deck/deck.css?v=reparto-neto-20261122">
   <script src="finance-deck/deck.js?v=locales-20261122" defer></script>
   <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
   <script src="finance-deck/finance.js?v=ahorro-historico-20261122" defer></script>
@@ -349,7 +349,7 @@
         <div><dt>Saldo inicial</dt><dd>12.774,61</dd></div>
         <div><dt>Capital líquido do período</dt><dd>23.259,56</dd></div>
         <div><dt>Saldo final</dt><dd>25.473,37</dd></div>
-        <div><dt>Resultado das contas</dt><dd><strong>+2.213,80</strong></dd></div>
+        <div><dt>Resultado líquido de trading</dt><dd><strong>+2.213,80</strong></dd></div>
         <div><dt>Retorno sobre capital ponderado</dt><dd><strong>+8,80%</strong></dd></div>
       </dl>
       <div class="finance-split">
@@ -370,7 +370,7 @@
         </div>
       </div>
       <p class="note">Até 13 nov., 19h UTC, predominava o KV-2. Resultado: −391,12. Após o corte: +2.604,93.</p>
-      <p class="note">Capital líquido = saldo inicial + 16.040,81 em aportes − 5.555,86 em saques. Resultado = saldo final − capital líquido. Inclui PnL em aberto. Transferências em USDT à paridade, antes das cobranças da KUVE. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Baixar conciliação (CSV)</a></p>
+      <p class="note">Capital líquido = saldo inicial + 16.040,81 em aportes − 5.555,86 em saques. Resultado = saldo final − capital líquido. Inclui PnL em aberto e custos da corretora refletidos no saldo. Transferências em USDT a par. Valores antes da divisão com a KUVE. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Baixar conciliação (CSV)</a></p>
     </section>
     <section class="slide finance-slide" id="operaciones" data-topic="Encerramentos de operações">
       <header class="headline">
@@ -415,13 +415,15 @@
         <h2 tabindex="-1">Contrato com a KUVE Finance</h2>
         <p class="lead">O investidor e a KUVE assinam um contrato de prestação de serviços. Os números e simulações desta apresentação servem de referência para definir os objetivos.</p>
       </header>
-      <dl class="finance-stats compact">
-        <div><dt>Custo operacional cobrado pela KUVE.</dt><dd>0 USDT</dd></div>
-        <div><dt>Do lucro líquido para o investidor.</dt><dd>70%</dd></div>
-        <div><dt>Do lucro líquido para a KUVE.</dt><dd>30%</dd></div>
-      </dl>
-      <p class="note"><strong>Lucro líquido.</strong> Excedente sobre o capital inicial após as taxas e o financiamento da corretora, quando aplicáveis. A divisão ocorre no saque do lucro.</p>
-      <p class="note"><strong>Pagamento no saque.</strong> Só o titular pode sacar da própria conta. No saque, ele paga à KUVE os 30% com o lucro líquido. O prazo máximo entre saques programados é de 12 meses.</p>
+      <figure class="profit-share">
+        <figcaption>Divisão de 100 USDT de lucro líquido</figcaption>
+        <dl class="profit-split">
+          <div><dt>Investidor<span>70 USDT</span></dt><dd>70%</dd></div>
+          <div><dt>KUVE<span>30 USDT</span></dt><dd>30%</dd></div>
+        </dl>
+      </figure>
+      <p class="note"><strong>Lucro líquido.</strong> Os valores do gráfico já descontam taxas de negociação, financiamento e outros custos da corretora. Divide-se o excedente sobre o capital inicial.</p>
+      <p class="note"><strong>A KUVE cobra 0 USDT de custo operacional.</strong> Só o titular pode sacar. No saque, ele paga à KUVE os 30% do lucro líquido. O prazo máximo entre saques programados é de 12 meses.</p>
     </section>
     <section class="slide contact" id="slide-10" data-alias="slide-8 slide-9" data-topic="Contato">
       <div class="split">
