@@ -11,10 +11,10 @@
   <meta property="og:image" content="https://ku-ve.us/finance-deck/kuve-finance.jpg">
   <link rel="canonical" href="https://ku-ve.us/Presentacao.html">
   <link rel="alternate" hreflang="es" href="https://ku-ve.us/Presentacion.html">
-  <link rel="stylesheet" href="finance-deck/deck.css?v=interactivo-20261122">
+  <link rel="stylesheet" href="finance-deck/deck.css?v=ahorro-renta-20261122">
   <script src="finance-deck/deck.js?v=interactivo-20261122" defer></script>
-  <script src="finance-deck/history-data.js" defer></script>
-  <script src="finance-deck/finance.js?v=interactivo-20261122" defer></script>
+  <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
+  <script src="finance-deck/finance.js?v=ahorro-renta-20261122" defer></script>
   <title>DPF Autocustodiado | KUVE Finance</title>
 </head>
 <body>
@@ -170,25 +170,73 @@
     </section>
     <section class="slide finance-slide" id="ahorro-renta" data-topic="Poupança e renda">
       <header class="headline">
-        <p class="kicker">Dois usos do capital</p>
-        <h2 tabindex="-1">Reinvestir ou retirar ganhos?</h2>
-        <p class="lead"><strong>Poupança</strong> reinveste os ganhos. <strong>Renda</strong> permite retirar o excedente no fim de cada período quando o saldo supera o capital inicial.</p>
+        <p class="kicker">Poupança e renda</p>
+        <h2 tabindex="-1">Retirar ganhos ou acumular capital?</h2>
       </header>
-      <div class="finance-form js-only" id="sim-controls">
-        <label>Capital inicial (USDT) <input type="number" id="sim-capital" value="10000" min="1" max="100000000" step="0.01" inputmode="decimal" required></label>
-        <label>Perfil histórico <select id="sim-profile"><option value="conservador">Conservador</option><option value="base" selected>Base</option><option value="agresivo">Agressivo</option></select></label>
-        <label>Frequência de saque <select id="sim-interval"><option value="1" selected>Mensal</option><option value="2">Bimestral</option><option value="3">Trimestral</option><option value="6">Semestral</option></select></label>
+      <div class="plan-switch js-only" role="group" aria-label="Opções de uso do capital">
+        <button class="control" type="button" data-plan="rent" aria-controls="rent-panel" aria-pressed="true">Renda</button>
+        <button class="control" type="button" data-plan="savings" aria-controls="savings-panel" aria-pressed="false">Poupança</button>
       </div>
-      <dl class="finance-stats compact js-only">
-        <div><dt>Saldo final com poupança</dt><dd id="sim-save-out">10.000</dd></div>
-        <div><dt>Saques simulados com renda</dt><dd id="sim-rent-out">0</dd></div>
-        <div><dt>Saldo final com renda</dt><dd id="sim-balance-out">10.000</dd></div>
-      </dl>
-      <figure class="figure-box">
-        <svg class="chart" id="sim-chart" width="600" height="175" role="img" aria-label="Saldo simulado para poupança e renda, em USDT"></svg>
-        <figcaption><span class="finance-legend"><span style="--swatch:#006b9f">Saldo em poupança</span><span style="--swatch:#187556">Saldo em renda</span></span> Simulação (USDT).</figcaption>
-      </figure>
-      <p class="note">De 1º de janeiro a 3 de julho de 2026. Os saques simulados são calculados no fim de períodos completos, antes de qualquer cobrança da KUVE. Um período pode terminar com perdas e sem saque.</p>
+      <section id="rent-panel" class="plan-panel" data-plan-panel="rent" aria-label="Simulação de saques">
+        <div class="finance-form plan-controls js-only" id="rent-controls">
+          <label>Ano
+            <select id="rent-year"><option value="2024">2024</option><option value="2025">2025</option><option value="2026" selected>2026</option></select>
+          </label>
+          <label>Capital-base (USDT)
+            <input id="rent-capital" type="number" value="10000" min="1" max="100000000" step="0.01" inputmode="decimal" required>
+          </label>
+          <label>Perfil do calendário <select id="rent-profile"><option value="2">KV-2 Conservador</option><option value="4" selected>KV-4 Base</option><option value="5">KV-5 Agressivo</option></select></label>
+          <button class="action secondary plan-graph" id="rent-graph" type="button" aria-haspopup="dialog">Ver gráfico</button>
+        </div>
+        <p class="note plan-cutoff" id="rent-cutoff" aria-live="polite">1º jan.–22 nov. 2026, 19h UTC. Fechamentos de dezembro pendentes.</p>
+        <div class="finance-split rent-tables">
+          <table class="finance-table plan-table">
+            <caption>Total simulado por perfil (USDT)</caption>
+            <thead><tr><th scope="col">Perfil</th><th scope="col" class="number">Trimestral</th><th scope="col" class="number">Semestral</th><th scope="col" class="number">Anual</th></tr></thead>
+            <tbody>
+            <tr data-rent-profile="2"><th scope="row"><strong>KV-2 Conservador</strong><span class="plan-risk">Queda máx. −6,26%</span></th><td data-rent-period="3">1.909,01</td><td data-rent-period="6">1.858,49</td><td data-rent-period="12">Pendente</td></tr>
+            <tr data-rent-profile="4"><th scope="row"><strong>KV-4 Base</strong><span class="plan-risk">Queda máx. −9,66%</span></th><td data-rent-period="3">2.965,51</td><td data-rent-period="6">2.985,92</td><td data-rent-period="12">Pendente</td></tr>
+            <tr data-rent-profile="5"><th scope="row"><strong>KV-5 Agressivo</strong><span class="plan-risk">Queda máx. −11,58%</span></th><td data-rent-period="3">3.738,01</td><td data-rent-period="6">3.828,79</td><td data-rent-period="12">Pendente</td></tr>
+            </tbody>
+          </table>
+          <table class="finance-table plan-table">
+            <caption>Calendário de saques simulados (USDT)</caption>
+            <thead><tr><th scope="col">Fechamento</th><th scope="col" class="number">Trimestral</th><th scope="col" class="number">Semestral</th><th scope="col" class="number">Anual</th></tr></thead>
+            <tbody>
+            <tr data-rent-month="3"><th scope="row">Março</th><td data-rent-period="3">1.617,11</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+            <tr data-rent-month="6"><th scope="row">Junho</th><td data-rent-period="3">1.178,27</td><td data-rent-period="6">2.985,92</td><td data-rent-period="12">—</td></tr>
+            <tr data-rent-month="9"><th scope="row">Setembro</th><td data-rent-period="3">170,13</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+            <tr data-rent-month="12"><th scope="row">Dezembro</th><td data-rent-period="3">—</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">Cada frequência é independente. Saca-se só o excedente. 0,00 indica falta de excedente e — falta de fechamento.</p>
+        <p class="note">Antes de taxas e financiamento. Ouro, prata e WTI com preços de referência até jun. 2026. Queda horária sem saques.</p>
+      </section>
+      <section id="savings-panel" class="plan-panel" data-plan-panel="savings" aria-label="Projeção de poupança" hidden>
+        <div class="finance-form plan-controls js-only" id="savings-controls">
+          <label>Capital-base (USDT)
+            <input id="savings-capital" type="number" value="10000" min="0" max="100000000" step="0.01" inputmode="decimal" required>
+          </label>
+          <label>Aporte mensal (USDT)
+            <input id="savings-monthly" type="number" value="100" min="0" max="1000000" step="0.01" inputmode="decimal" required>
+          </label>
+          <label>Taxa anual suposta (%)
+            <input id="savings-rate" type="number" value="5" min="-99" max="100" step="0.01" inputmode="decimal" required>
+          </label>
+          <button class="action secondary plan-graph" id="savings-graph" type="button" aria-haspopup="dialog">Ver gráfico</button>
+        </div>
+        <table class="finance-table plan-table savings-table">
+          <caption>Projeção de saldo (USDT)</caption>
+          <thead><tr><th scope="col">Prazo</th><th scope="col" class="number">Capital total aportado</th><th scope="col" class="number">Saldo projetado</th></tr></thead>
+          <tbody>
+          <tr data-savings-months="24"><th scope="row">2 anos</th><td data-savings-contributed>12.400,00</td><td data-savings-balance>13.540,88</td></tr>
+          <tr data-savings-months="60"><th scope="row">5 anos</th><td data-savings-contributed>16.000,00</td><td data-savings-balance>19.544,19</td></tr>
+          <tr data-savings-months="120"><th scope="row">10 anos</th><td data-savings-contributed>22.000,00</td><td data-savings-balance>31.725,26</td></tr>
+          </tbody>
+        </table>
+        <p class="note">Exemplo ilustrativo com taxa anual efetiva constante e reinvestimento mensal. Aportes no fim de cada mês. O rendimento real varia e pode ser negativo.</p>
+      </section>
     </section>
     <section class="slide finance-slide" id="backtest" data-topic="Backtest KV-9014">
       <header class="headline">

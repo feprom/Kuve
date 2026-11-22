@@ -482,12 +482,30 @@ dialog::backdrop { background: #091d2cc9; }
 .trade-title strong { color: var(--result-color); font: 650 clamp(1.2rem, 2.3cqw, 2rem)/1 var(--mono); }
 .trade-impact strong { color: var(--ink); }
 
+.plan-switch { display: flex; gap: 5px; }
+.plan-switch .control { min-height: 36px; padding-inline: 14px; border-color: var(--line); }
+.plan-switch .control[aria-pressed="true"] { background: var(--navy); color: white; border-color: var(--navy); }
+.plan-panel { display: grid; gap: clamp(5px, .8cqw, 11px); }
+.plan-controls { gap: 6px 12px; }
+.plan-graph { margin-inline-start: auto; min-height: 40px; }
+.rent-tables { align-items: start; }
+.plan-table { background: #fff; }
+.plan-table caption { color: var(--ink); }
+.rent-tables .plan-table th:first-child { width: 29%; }
+.plan-risk { display: block; color: var(--muted); font-size: .88em; font-weight: 400; }
+.savings-table { max-width: 720px; }
+.savings-table th:first-child { width: 20%; }
+
 @media (min-width: 900px) and (max-height: 760px) {
   .finance-slide { --pad: clamp(16px, 2.6cqw, 42px); gap: 6px; padding-block: 10px; }
   .finance-slide .headline .lead { max-width: none; }
   .finance-slide .figure-box .chart { height: clamp(104px, 12.9cqw, 142px); }
   .finance-slide .finance-table th, .finance-slide .finance-table td { padding-block: 4px; }
   .finance-form input, .finance-form select { min-height: 36px; }
+  .plan-switch .control { min-height: 32px; padding-block: 3px; }
+  .plan-panel { gap: 5px; }
+  .plan-graph { min-height: 36px; }
+  .rent-tables .plan-table:first-child th:first-child { width: 32%; }
 }
 
 @media (max-width: 620px) {
@@ -502,6 +520,8 @@ dialog::backdrop { background: #091d2cc9; }
   .chart-dialog .dialog-head h2 { font-size: 1.12rem; }
   .app-intro, .market-regimes { grid-template-columns: minmax(0, 1fr); }
   .app-captures img { max-height: 210px; }
+  .plan-switch .control, .plan-graph { min-height: 44px; }
+  .plan-graph { margin-inline-start: 0; }
 }
 @media (max-width: 360px) {
   .finance-table { font-size: .77rem; }

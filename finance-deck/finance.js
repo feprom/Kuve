@@ -1,5 +1,5 @@
 (() => {
-  const { backtest, simulation, cohort, replay } = window.kuveFinanceHistory;
+  const { backtest, simulation, cohort, replay, rentals } = window.kuveFinanceHistory;
   const lang = document.documentElement.lang;
   const pt = lang.startsWith("pt");
   const colors = { conservador: "#187556", base: "#006b9f", agresivo: "#9c4d12" };
@@ -171,7 +171,7 @@
           name.textContent = line.label;
           const value = line.values[index];
           amount.textContent = unit === "money"
-            ? `${formattedAmount.format(value)} USDT (${signedAmount.format((value / line.values[0] - 1) * 100)}%)`
+            ? `${formattedAmount.format(value)} USDT`
             : `${signedAmount.format(value)}%`;
           row.append(name, amount);
           tooltip.append(row);
@@ -280,61 +280,146 @@
     opener = undefined;
   });
 
-  function simulationRun(returns, dates, capital, interval) {
-    let savings = capital;
-    let balance = capital;
-    const savingsLine = [];
-    const rentLine = [];
-    const payments = [];
-    for (const [i, rate] of returns.entries()) {
-      savings *= 1 + rate;
+  const plans = document.querySelector("#ahorro-renta");
+  const planButtons = [...plans.querySelectorAll("[data-plan]")];
+  const planPanels = [...plans.querySelectorAll("[data-plan-panel]")];
+  planButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      planButtons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+      planPanels.forEach((panel) => { panel.hidden = panel.dataset.planPanel !== button.dataset.plan; });
+    });
+  });
+
+  const rentControls = document.querySelector("#rent-controls");
+  const rentYear = document.querySelector("#rent-year");
+  const rentCapital = document.querySelector("#rent-capital");
+  const rentProfile = document.querySelector("#rent-profile");
+  const rentChartButton = document.querySelector("#rent-graph");
+  const rentCutoff = document.querySelector("#rent-cutoff");
+  const incomeIds = ["2", "4", "5"];
+  const frequencies = [
+    { months: 3, label: "Trimestral", color: colors.base },
+    { months: 6, label: "Semestral", color: colors.conservador },
+    { months: 12, label: "Anual", color: colors.agresivo },
+  ];
+  const quarterEnds = [3, 6, 9, 12];
+  const pending = pt ? "Pendente" : "Pendiente";
+
+  function incomeRun(returns, closes, initial, interval) {
+    let balance = initial;
+    const balances = [initial];
+    const payments = new Map();
+    returns.forEach((rate, index) => {
       balance *= 1 + rate;
-      const month = Number(dates[i].slice(5, 7));
-      const monthClosed = dates[i + 1] && dates[i + 1].slice(0, 7) !== dates[i].slice(0, 7);
-      if (monthClosed && month % interval === 0) {
-        const withdrawal = Math.max(0, balance - capital);
-        payments.push(withdrawal);
+      const date = new Date(closes[index + 1]);
+      const completedMonth = date.getUTCMonth() || 12;
+      if (date.getUTCDate() === 1 && date.getUTCHours() === 0 && completedMonth % interval === 0) {
+        const withdrawal = Math.floor(Math.max(0, balance - initial) * 100) / 100;
+        payments.set(completedMonth, withdrawal);
         balance -= withdrawal;
       }
-      savingsLine.push(savings);
-      rentLine.push(balance);
-    }
-    return { savingsLine, rentLine, payments };
+      balances.push(balance);
+    });
+    return { balances, payments };
   }
 
-  const capitalInput = document.querySelector("#sim-capital");
-  const profileInput = document.querySelector("#sim-profile");
-  const intervalInput = document.querySelector("#sim-interval");
-  const savingsOutput = document.querySelector("#sim-save-out");
-  const rentOutput = document.querySelector("#sim-rent-out");
-  const balanceOutput = document.querySelector("#sim-balance-out");
-  const simChart = document.querySelector("#sim-chart");
+  function updateIncome() {
+    if (!rentCapital.validity.valid) return undefined;
+    const annual = rentals[rentYear.value];
+    const initial = rentCapital.valueAsNumber;
+    let detail;
+    for (const profile of incomeIds) {
+      const row = plans.querySelector(`[data-rent-profile="${profile}"]`);
+      const risk = annual.risk[profile];
+      row.querySelector(".plan-risk").textContent = `${pt ? "Queda máx." : "Caída máx."} ${signedAmount.format(risk.dd)}%`;
+      const results = frequencies.map((frequency) => {
+        const run = incomeRun(annual.returns[profile], annual.dates, initial, frequency.months);
+        const total = [...run.payments.values()].reduce((sum, amount) => sum + amount, 0);
+        row.querySelector(`[data-rent-period="${frequency.months}"]`).textContent =
+          run.payments.size ? formattedAmount.format(total) : pending;
+        return run;
+      });
+      if (profile === rentProfile.value) detail = results;
+    }
 
-  function showSimulation() {
-    if (!capitalInput.validity.valid) return;
-    const initial = Math.min(capitalInput.valueAsNumber || 10000, 100000000);
-    const { savingsLine, rentLine, payments } = simulationRun(
-      simulation.rets[profileInput.value], simulation.dates, initial, Number(intervalInput.value),
-    );
-    savingsOutput.textContent = currency.format(savingsLine.at(-1));
-    rentOutput.textContent = currency.format(payments.reduce((sum, payment) => sum + payment, 0));
-    balanceOutput.textContent = currency.format(rentLine.at(-1));
+    quarterEnds.forEach((month) => {
+      const row = plans.querySelector(`[data-rent-month="${month}"]`);
+      frequencies.forEach((frequency, index) => {
+        const amount = detail[index].payments.get(month);
+        row.querySelector(`[data-rent-period="${frequency.months}"]`).textContent =
+          amount === undefined ? "—" : formattedAmount.format(amount);
+      });
+    });
+
+    const year = rentYear.value;
+    rentCutoff.textContent = year === "2026"
+      ? (pt ? "1º jan.–22 nov. 2026, 19h UTC. Fechamentos de dezembro pendentes." : "1 ene.–22 nov. 2026, 19:00 UTC. Cierres de diciembre pendientes.")
+      : (pt ? `Ano completo de ${year}.` : `Año completo ${year}.`);
+
     return {
-      dates: ["2025-12-31", ...simulation.dates],
-      lines: [
-        { values: [initial, ...savingsLine], color: colors.base, label: pt ? "Saldo em poupança" : "Saldo ahorro" },
-        { values: [initial, ...rentLine], color: colors.conservador, label: pt ? "Saldo em renda" : "Saldo renta" },
-      ],
+      dates: annual.dates,
+      lines: frequencies.map((frequency, index) => ({
+        values: detail[index].balances,
+        label: frequency.label,
+        color: frequency.color,
+      })),
       unit: "money",
     };
   }
 
-  let scenario = showSimulation();
-  const simulationPlot = plot(simChart, () => scenario);
-  document.querySelector("#sim-controls").addEventListener("input", () => {
-    scenario = showSimulation() ?? scenario;
-    simulationPlot.draw();
-  });
+  let income = updateIncome();
+  rentControls.addEventListener("input", () => { income = updateIncome() ?? income; });
+  rentChartButton.addEventListener("click", () => openChart(
+    pt ? "Saldo simulado após os saques" : "Saldo simulado después de los retiros",
+    () => income,
+    rentChartButton,
+  ));
+
+  const savingsControls = document.querySelector("#savings-controls");
+  const savingsCapital = document.querySelector("#savings-capital");
+  const savingsMonthly = document.querySelector("#savings-monthly");
+  const savingsRate = document.querySelector("#savings-rate");
+  const savingsGraph = document.querySelector("#savings-graph");
+
+  function updateSavings() {
+    const inputs = [savingsCapital, savingsMonthly, savingsRate];
+    if (inputs.some((input) => !input.validity.valid)) return undefined;
+    const [initial, monthly, annualRate] = inputs.map((input) => input.valueAsNumber);
+    const monthlyFactor = (1 + annualRate / 100) ** (1 / 12);
+    let balance = initial;
+    const balances = [initial];
+    const contributions = [initial];
+    const dates = ["2026-11-22T00:00:00Z"];
+    for (let month = 1; month <= 120; month++) {
+      balance = balance * monthlyFactor + monthly;
+      balances.push(balance);
+      contributions.push(initial + monthly * month);
+      dates.push(new Date(Date.UTC(2026, 10 + month, 22)).toISOString());
+    }
+    plans.querySelectorAll("[data-savings-months]").forEach((row) => {
+      const month = Number(row.dataset.savingsMonths);
+      row.querySelector("[data-savings-contributed]").textContent = formattedAmount.format(contributions[month]);
+      row.querySelector("[data-savings-balance]").textContent = formattedAmount.format(balances[month]);
+    });
+
+    return {
+      dates,
+      lines: [
+        { values: contributions, label: "Total aportado", color: colors.conservador },
+        { values: balances, label: pt ? "Saldo projetado" : "Saldo proyectado", color: colors.base },
+      ],
+      unit: "money",
+      years: true,
+    };
+  }
+
+  let savings = updateSavings();
+  savingsControls.addEventListener("input", () => { savings = updateSavings() ?? savings; });
+  savingsGraph.addEventListener("click", () => openChart(
+    pt ? "Saldo e aportes projetados, a partir de novembro de 2026" : "Saldo y aportes proyectados, desde noviembre de 2026",
+    () => savings,
+    savingsGraph,
+  ));
 
   const periodInput = document.querySelector("#history-range");
   const historyPoints = (profile, period) => {
