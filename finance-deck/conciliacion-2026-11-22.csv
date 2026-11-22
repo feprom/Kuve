@@ -1,0 +1,5 @@
+from_utc,to_utc,opening_equity_usd_equivalent,inflows_usd_equivalent,outflows_usd_equivalent,net_reference_capital_usd_equivalent,closing_equity_usd_equivalent,account_pnl_usd_equivalent,time_weighted_capital_usd_equivalent,modified_dietz_return_percent
+2026-08-22T19:00:00Z,2026-11-22T19:00:00Z,12774.61,16040.81,5555.86,23259.56,25473.37,2213.80,25158.39,8.80
+2026-08-22T19:00:00Z,2026-09-22T19:00:00Z,12774.61,16007.44,800.50,27981.55,28087.55,106.01,21150.42,0.50
+2026-09-22T19:00:00Z,2026-10-22T19:00:00Z,28087.55,0.00,710.00,27377.55,26872.87,-504.68,27853.29,-1.81
+2026-10-22T19:00:00Z,2026-11-22T19:00:00Z,26872.87,33.37,4045.36,22860.89,25473.37,2612.48,26262.30,9.95

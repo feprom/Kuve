@@ -13,6 +13,8 @@
   <link rel="alternate" hreflang="es" href="https://ku-ve.us/Presentacion.html">
   <link rel="stylesheet" href="finance-deck/deck.css">
   <script src="finance-deck/deck.js" defer></script>
+  <script src="finance-deck/history-data.js" defer></script>
+  <script src="finance-deck/finance.js" defer></script>
   <title>KUVE Finance</title>
 </head>
 <body>
@@ -65,7 +67,7 @@
       <header class="headline">
           <p class="kicker">O serviço</p>
           <h2 tabindex="-1">Sua conta, seu capital.</h2>
-          <p class="lead">A KUVE automatiza as ordens. Você mantém o acesso à sua conta da Binance e o controle de depósitos e saques.</p>
+          <p class="lead">Um depósito a prazo bancário paga uma taxa acordada. Esta estratégia automatizada opera futuros na sua conta da Binance, com rendimento variável e possibilidade de perda. O acesso é configurado on-line pela sua conta.</p>
         </header>
       <div class="cards">
         <div class="card">
@@ -78,7 +80,7 @@
         </div>
 <div class="card">
           <h3>App privado</h3>
-          <p>Consulte o saldo, as posições abertas e o histórico da estratégia.</p>
+          <p>Consulte o saldo, as posições e o histórico da estratégia. Você controla depósitos e saques.</p>
         </div>
       </div>
     </section>
@@ -93,7 +95,7 @@
 <div class="card"><h3>Metais</h3><strong class="market-codes">XAU · XAG</strong><p>Exposição ao ouro e à prata.</p></div>
 <div class="card"><h3>Energia</h3><strong class="market-codes">CL</strong><p>Exposição ao petróleo bruto.</p></div>
       </div>
-      <p class="note">Os ativos podem se mover na mesma direção e acumular exposição.</p>
+      <p class="note">Os ativos podem se mover na mesma direção e acumular exposição. O ciclo das 19h UTC de 13 de novembro foi concluído nas sete contas habilitadas naquele momento.</p>
     </section>
     <section class="slide" id="slide-4" data-topic="Programação">
       <header class="headline">
@@ -108,17 +110,31 @@
         <li class="card"><h3>Gerencia a saída</h3><p>Usa saídas por canal de preços ou um stop móvel baseado na volatilidade.</p></li>
       </ol>
     </section>
-    <section class="slide" id="slide-5" data-topic="Perfis">
+    <section class="slide finance-slide" id="slide-5" data-topic="Perfis de risco">
       <header class="headline">
-          <p class="kicker">Perfis</p>
-          <h2 tabindex="-1">Três níveis de exposição.</h2>
-          <p class="lead">O perfil muda o tamanho-alvo das posições. Um tamanho maior amplia o efeito dos movimentos do mercado.</p>
-        </header>
-      <div class="cards">
-        <div class="card"><p class="label">KV-2</p><h3>Conservador</h3><p>Menor tamanho-alvo entre os três perfis.</p></div>
-<div class="card"><p class="label">KV-4</p><h3>Base</h3><p>Tamanho-alvo maior com as mesmas regras de sinal do KV-2.</p></div>
-<div class="card"><p class="label">KV-5</p><h3>Agressivo</h3><p>Tamanho-alvo maior e uma variante de sinal e de saídas.</p></div>
+        <p class="kicker">Perfis de risco</p>
+        <h2 tabindex="-1">Mesmo mercado, exposição diferente.</h2>
+        <p class="lead">KV-2 usa menor exposição. KV-4 aumenta o tamanho com o mesmo sinal. KV-5 usa maior exposição e uma variante de saída.</p>
+      </header>
+      <div class="finance-split">
+        <figure class="figure-box">
+          <svg class="chart" id="profile-chart" width="600" height="175" role="img" aria-label="Três perfis simulados e o rendimento observado das contas"></svg>
+          <figcaption>Rendimento acumulado ajustado por fluxos. A linha cinza tracejada mostra as contas reais.</figcaption>
+        </figure>
+        <div>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Perfil</th><th scope="col" class="number">TWR</th><th scope="col" class="number">Queda máx.</th><th scope="col" class="number">Resultado¹</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#187556"></span>KV-2 · Conservador</th><td>+3,40%</td><td>−5,16%</td><td>+990,82</td></tr>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#006b9f"></span>KV-4 · Base</th><td>+5,34%</td><td>−7,87%</td><td>+1.572,15</td></tr>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#9c4d12"></span>KV-5 · Agressivo</th><td>+8,49%</td><td>−10,17%</td><td>+2.478,72</td></tr>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#303747"></span>Contas reais</th><td>+8,15%</td><td>−5,62%</td><td>+2.213,80</td></tr>
+          </tbody>
+        </table>
+          <p class="note">¹ Dólares equivalentes. Mesmo capital inicial e fluxos registrados de 22 ago. a 22 nov. de 2026.</p>
+        </div>
       </div>
+      <p class="note">Os três cenários reproduzem 2.208 velas horárias reais nos sete mercados atuais, antes de taxas e financiamento. As contas reais combinam níveis e refletem custos de execução.</p>
     </section>
     <section class="slide" id="slide-6" data-topic="Controles e risco">
       <header class="headline">
@@ -131,56 +147,152 @@
       </div>
       <p class="note"><a href="https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/understand_risks_of_virtual_currency.html" target="_blank" rel="noopener">Consulte o guia de riscos da CFTC</a></p>
     </section>
-    <section class="slide evidence" id="slide-7" data-topic="Experiência real">
-      <div class="split">
-        <header class="headline">
-          <p class="kicker">Experiência real</p>
-          <h2 tabindex="-1">Um ciclo verificado em produção.</h2>
-          <p class="lead">Em <time datetime="2026-11-13">13 de novembro de 2026</time>, o bot concluiu o ciclo da vela das 19h UTC nas sete contas habilitadas.</p>
-          <p class="note">Desde outubro usamos conciliação automática de execuções e movimentações para revisar as operações.</p>
-        </header>
-        <div class="score">
-          <dl>
-            <dt>Contas processadas com sucesso neste ciclo</dt>
-            <dd>7 / 7</dd>
-          </dl>
-          <p class="note">Registro operacional de um ciclo horário.</p>
+    <section class="slide finance-slide" id="ahorro-renta" data-topic="Poupança e renda">
+      <header class="headline">
+        <p class="kicker">Dois usos do capital</p>
+        <h2 tabindex="-1">Reinvestir ou retirar ganhos?</h2>
+        <p class="lead"><strong>Poupança</strong> reinveste os ganhos. <strong>Renda</strong> permite retirar o excedente no fim de cada período quando o saldo supera o capital inicial.</p>
+      </header>
+      <div class="finance-form js-only" id="sim-controls">
+        <label>Capital inicial (USDT) <input type="number" id="sim-capital" value="10000" min="1" max="100000000" step="0.01" inputmode="decimal" required></label>
+        <label>Perfil histórico <select id="sim-profile"><option value="conservador">Conservador</option><option value="base" selected>Base</option><option value="agresivo">Agressivo</option></select></label>
+        <label>Frequência de saque <select id="sim-interval"><option value="1" selected>Mensal</option><option value="2">Bimestral</option><option value="3">Trimestral</option><option value="6">Semestral</option></select></label>
+      </div>
+      <dl class="finance-stats compact js-only">
+        <div><dt>Saldo final com poupança</dt><dd id="sim-save-out">10.000</dd></div>
+        <div><dt>Saques simulados com renda</dt><dd id="sim-rent-out">0</dd></div>
+        <div><dt>Saldo final com renda</dt><dd id="sim-balance-out">10.000</dd></div>
+      </dl>
+      <figure class="figure-box">
+        <svg class="chart" id="sim-chart" width="600" height="175" role="img" aria-label="Saldo simulado para poupança e renda, em USDT"></svg>
+        <figcaption><span class="finance-legend"><span style="--swatch:#006b9f">Saldo em poupança</span><span style="--swatch:#187556">Saldo em renda</span></span> Simulação (USDT).</figcaption>
+      </figure>
+      <p class="note">De 1º de janeiro a 3 de julho de 2026. Os saques simulados são calculados no fim de períodos completos, antes de qualquer cobrança da KUVE. Um período pode terminar com perdas e sem saque.</p>
+    </section>
+    <section class="slide finance-slide" id="backtest" data-topic="Backtest KV-9014">
+      <header class="headline">
+        <p class="kicker">Backtest KV-9014</p>
+        <h2 tabindex="-1">Resultados do teste histórico.</h2>
+        <p class="lead">A carteira de pesquisa usava oito mercados com peso inicial igual. A configuração atual opera sete.</p>
+      </header>
+      <div class="finance-split">
+        <figure class="figure-box">
+        <svg class="chart" id="history-chart" width="600" height="175" role="img" aria-label="Retorno acumulado simulado dos três perfis"></svg>
+        <figcaption>Rendimento acumulado sobre o capital inicial.</figcaption>
+      </figure>
+        <div>
+          <div class="finance-form js-only">
+            <label>Período simulado <select id="history-range"><option value="weekly" selected>Dez. 2020–jun. 2026</option><option value="daily">1º jan.–3 jul. 2026</option></select></label>
+          </div>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Perfil</th><th scope="col" class="number">Retorno acum.</th><th scope="col" class="number">Queda máx.</th></tr></thead>
+          <tbody>
+            <tr data-history-profile="conservador"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#187556"></span>Conservador</th><td>+228,3%</td><td>−8,4%</td></tr>
+            <tr data-history-profile="base"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#006b9f"></span>Base</th><td>+600,0%</td><td>−11,9%</td></tr>
+            <tr data-history-profile="agresivo"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#9c4d12"></span>Agressivo</th><td>+1.451,6%</td><td>−14,8%</td></tr>
+          </tbody>
+        </table>
         </div>
       </div>
+      <p class="note">Resultados hipotéticos do modelo arquivado. Incluem custo de negociação e financiamento modelados para essa carteira. Queda máxima observada na frequência selecionada. O desempenho futuro pode incluir perdas. <a href="https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/fraudadv_tradingsystem.html" target="_blank" rel="noopener">Riscos do backtest</a> · <a href="Metodologia.html" lang="es" target="_blank" rel="noopener">Metodología</a> · <a href="Carteras.html" lang="es" target="_blank" rel="noopener">Carteras</a></p>
     </section>
-    <section class="slide" id="slide-8" data-topic="App e Telegram">
+    <section class="slide finance-slide" id="slide-7" data-topic="Resultados reais">
       <header class="headline">
-          <p class="kicker">App e Telegram</p>
-          <h2 tabindex="-1">Acompanhe a carteira pelo celular.</h2>
-          <p class="lead">Entre no app com seu convite. Você pode vincular o Telegram pelo seu perfil.</p>
-        </header>
-      <div class="cards two">
-        <div class="card">
-          <h3>App para clientes</h3>
-          <p>Consulte posições, histórico e evolução da conta.</p>
-          <a class="action secondary" href="https://finance.ku-ve.com/" target="_blank" rel="noopener">Abrir o app<svg aria-hidden="true"><use href="#icon-external"></use></svg></a>
-        </div>
-<div class="card">
-          <h3>Bot para clientes</h3>
-          <p>Receba relatórios e avisos depois de vincular sua conta.</p>
-          <a class="action secondary" href="https://t.me/KuveAgent_bot" target="_blank" rel="noopener">Abrir @KuveAgent_bot<svg aria-hidden="true"><use href="#icon-external"></use></svg></a>
+        <p class="kicker">Resultados reais</p>
+        <h2 tabindex="-1">Três meses em contas reais.</h2>
+        <p class="lead">De 22 de agosto a 22 de novembro de 2026, 19h UTC. 7 contas reais: cinco no início e duas incorporadas durante o período. Valores em dólares equivalentes.</p>
+      </header>
+      <dl class="finance-stats">
+        <div><dt>Saldo inicial</dt><dd>12.774,61</dd></div>
+        <div><dt>Capital líquido do período</dt><dd>23.259,56</dd></div>
+        <div><dt>Saldo final</dt><dd>25.473,37</dd></div>
+        <div><dt>Resultado das contas</dt><dd><strong>+2.213,80</strong></dd></div>
+        <div><dt>Retorno sobre capital ponderado</dt><dd><strong>+8,80%</strong></dd></div>
+      </dl>
+      <div class="finance-split">
+        <figure class="figure-box">
+        <svg class="chart" id="cohort-chart" width="600" height="175" role="img" aria-label="Rendimento real acumulado, ajustado por entradas e saídas"></svg>
+        <figcaption><span class="finance-legend"><span style="--swatch:#006b9f">Conjunto +8,15%</span><span style="--swatch:#9c4d12">Conta do Mario +9,83%</span></span> TWR · Queda máxima do conjunto −5,62%</figcaption>
+      </figure>
+        <div>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Período</th><th scope="col" class="number">Retorno¹</th><th scope="col" class="number">USD equiv.</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">22 ago–22 set</th><td>+0,50%</td><td>+106,01</td></tr>
+            <tr><th scope="row">22 set–22 out</th><td>−1,81%</td><td>−504,68</td></tr>
+            <tr><th scope="row">22 out–22 nov</th><td>+9,95%</td><td>+2.612,48</td></tr>
+          </tbody>
+        </table>
+          <p class="note">¹ Dietz modificado, com fluxos ponderados pelo tempo. Base: 25.158,39..</p>
         </div>
       </div>
+      <p class="note">Até 13 nov., 19h UTC, predominava o KV-2. Resultado: −391,12. Após o corte: +2.604,93.</p>
+      <p class="note">Capital líquido = saldo inicial + 16.040,81 em aportes − 5.555,86 em saques. Resultado = saldo final − capital líquido. Inclui PnL em aberto. Transferências em USDT à paridade, antes das cobranças da KUVE. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Baixar conciliação (CSV)</a></p>
     </section>
-    <section class="slide" id="slide-9" data-topic="Primeiros passos">
+    <section class="slide finance-slide" id="operaciones" data-topic="Encerramentos de operações">
       <header class="headline">
-          <p class="kicker">Primeiros passos</p>
-          <h2 tabindex="-1">Como começar com a KUVE.</h2>
-          <p class="lead">Na primeira conversa, esclareça dúvidas sobre o serviço, os perfis e os custos.</p>
-        </header>
-      <ol class="cards steps" role="list">
-        <li class="card"><h3>Peça informações</h3><p>Converse conosco sobre o funcionamento, a exposição e os requisitos.</p></li>
-        <li class="card"><h3>Entre por convite</h3><p>Ative seu acesso privado com um link de convite e um PIN.</p></li>
-        <li class="card"><h3>Vincule sua conta</h3><p>Configure uma chave de API com permissões limitadas e revise o perfil antes de operar.</p></li>
-      </ol>
-      <p class="note">Revise as cobranças do serviço, as taxas da corretora e o financiamento dos contratos futuros.</p>
+        <p class="kicker">Encerramentos de operações</p>
+        <h2 tabindex="-1">Quanto se ganhou e se perdeu no encerramento.</h2>
+        <p class="lead">816 encerramentos com resultado realizado diferente de zero em sete contas, de 22 de agosto a 22 de novembro de 2026.</p>
+      </header>
+      <div class="trade-bar" aria-hidden="true">
+        <span style="width:53.31%;background:#187556"></span>
+        <span style="width:46.69%;background:#9c4d12"></span>
+      </div>
+      <div class="finance-split trade-split">
+        <div class="trade-card" style="--result-color:#187556">
+          <p class="trade-title"><strong>53,31%</strong> Encerramentos com ganho · 435</p>
+          <p>Resultado bruto <strong>+3.432,63 USDT</strong></p>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Por encerramento</th><th scope="col" class="number">Mín.</th><th scope="col" class="number">Média</th><th scope="col" class="number">Máx.</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">% do nocional</th><td>+0,01%</td><td>+4,82%</td><td>+19,97%</td></tr>
+            <tr><th scope="row">USDT</th><td>+0,004</td><td>+7,89</td><td>+83,24</td></tr>
+          </tbody>
+        </table>
+        </div>
+<div class="trade-card" style="--result-color:#9c4d12">
+          <p class="trade-title"><strong>46,69%</strong> Encerramentos com perda · 381</p>
+          <p>Resultado bruto <strong>−3.069,18 USDT</strong></p>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Por encerramento</th><th scope="col" class="number">Mín.</th><th scope="col" class="number">Média</th><th scope="col" class="number">Máx.</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">% do nocional</th><td>−7,90%</td><td>−2,16%</td><td>−0,03%</td></tr>
+            <tr><th scope="row">USDT</th><td>−72,52</td><td>−8,06</td><td>−0,01</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <p class="note">Dados do registro de ordens do bot. Cada percentual divide o PnL realizado pelo nocional no encerramento. As médias dão o mesmo peso a cada encerramento. Valores antes de taxas e financiamento.</p>
     </section>
-    <section class="slide contact" id="slide-10" data-topic="Contato">
+    <section class="slide finance-slide" id="cierre-2026" data-topic="Cenários até 31 de dezembro">
+      <header class="headline">
+        <p class="kicker">Cenários até 31 de dezembro</p>
+        <h2 tabindex="-1">O que pode mudar até o fim de 2026.</h2>
+        <p class="lead">Exercício sobre o saldo agregado de 25.473,37 USD equiv. em 22 de novembro. Supõe que esse saldo continua investido no perfil selecionado, sem aportes nem saques.</p>
+      </header>
+      <div class="finance-split">
+        <figure class="figure-box">
+        <svg class="chart" id="outlook-chart" width="600" height="175" role="img" aria-label="Faixa simulada entre percentil 10 e percentil 90 e mediana do retorno futuro"></svg>
+        <figcaption>Faixa dos percentis P10 a P90. A linha contínua mostra a mediana simulada P50.</figcaption>
+      </figure>
+        <div>
+          <div class="finance-form js-only">
+          <label>Perfil histórico <select id="outlook-profile"><option value="2">KV-2 · Conservador</option><option value="4">KV-4 · Base</option><option value="5" selected>KV-5 · Agressivo</option></select></label></div>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Percentil</th><th scope="col" class="number">Retorno</th><th scope="col" class="number">Variação USD equiv.</th><th scope="col" class="number">Saldo USD equiv.</th></tr></thead>
+          <tbody>
+            <tr data-outlook="P10"><th scope="row">P10</th><td>−2,94%</td><td>−748,65</td><td>24.724,72</td></tr>
+            <tr data-outlook="P50"><th scope="row">P50</th><td>+5,70%</td><td>+1.452,08</td><td>26.925,45</td></tr>
+            <tr data-outlook="P90"><th scope="row">P90</th><td>+16,15%</td><td>+4.114,02</td><td>29.587,39</td></tr>
+          </tbody>
+        </table>
+          <p class="note">Variação do corte até o fim do ano.</p>
+        </div>
+      </div>
+      <p class="note">287 retornos semanais do backtest arquivado, combinados em blocos de quatro semanas para simular um horizonte de cerca de 6 semanas. O modelo histórico operava oito mercados e o bot opera sete. Os resultados reais podem ficar fora da faixa.</p>
+    </section>
+    <section class="slide contact" id="slide-10" data-alias="slide-8 slide-9" data-topic="Contato">
       <div class="split">
         <div>
           <header class="headline">
@@ -197,7 +309,11 @@
           <p class="kicker">Contato direto</p>
           <h3>Mario Mendizabal</h3>
           <p><a href="mailto:mario.mendizabal@ku-ve.com?subject=Informa%C3%A7%C3%B5es%20sobre%20a%20KUVE%20Finance&amp;body=Ol%C3%A1%2C%20Mario.%20Gostaria%20de%20conhecer%20melhor%20a%20KUVE%20Finance.%20Minha%20d%C3%BAvida%20%C3%A9%3A%0A%0A">mario.mendizabal@ku-ve.com</a></p>
-          <p class="note">O botão abre um e-mail com o assunto preenchido.</p>
+          <p class="note">Acesso privado por convite e PIN. Os clientes podem vincular o Telegram pelo perfil.</p>
+          <div class="button-row">
+            <a class="action secondary" href="https://finance.ku-ve.com/" target="_blank" rel="noopener">App para clientes</a>
+            <a class="action secondary" href="https://t.me/KuveAgent_bot" target="_blank" rel="noopener">Bot do Telegram</a>
+          </div>
         </div>
       </div>
     </section>
@@ -207,8 +323,8 @@
     <div class="nav-inner">
       <button class="control" id="previous" type="button" aria-label="Anterior"><svg aria-hidden="true"><use href="#icon-prev"></use></svg><span class="wide-label">Anterior</span></button>
       <div class="position">
-        <button class="control count" id="slide-count" type="button" aria-label="Índice de slides" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#icon-index"></use></svg><span>01 / 10</span></button>
-        <progress class="progress" id="progress" value="1" max="10" aria-label="Progresso da apresentação"></progress>
+        <button class="control count" id="slide-count" type="button" aria-label="Índice de slides" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#icon-index"></use></svg><span>01 / 12</span></button>
+        <progress class="progress" id="progress" value="1" max="12" aria-label="Progresso da apresentação"></progress>
       </div>
       <button class="control" id="next" type="button" aria-label="Próximo"><span class="wide-label">Próximo</span><svg aria-hidden="true"><use href="#icon-next"></use></svg></button>
     </div>

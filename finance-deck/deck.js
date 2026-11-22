@@ -14,17 +14,15 @@
   const list = document.querySelector(".contents");
   const number = (value) => String(value).padStart(2, "0");
   // Old links used zero-based positions. Keep them pointed at the closest topic.
-  const legacySlides = [0, 1, 5, 1, 2, 3, 6, 5, 8];
+  const legacySlides = ["slide-1", "slide-2", "slide-6", "ahorro-renta", "slide-3", "backtest", "backtest", "slide-6", "slide-9"];
   let current = -1;
   let swipeStart;
 
   function locationIndex() {
     const hash = window.location.hash;
-    const id = hash.slice(1);
-    const position = slides.findIndex((slide) => slide.id === id);
-    if (position !== -1) return position;
     const legacy = /^#s=(\d+)$/.exec(hash);
-    return legacy ? legacySlides[Number(legacy[1])] ?? 0 : 0;
+    const id = legacy ? legacySlides[Number(legacy[1])] : hash.slice(1);
+    return Math.max(0, slides.findIndex((slide) => slide.id === id || (id && slide.dataset.alias?.split(" ").includes(id))));
   }
 
   const entries = slides.map((slide, index) => {
