@@ -1,12 +1,18 @@
 (() => {
   const { backtest, simulation, cohort, replay } = window.kuveFinanceHistory;
   const lang = document.documentElement.lang;
+  const pt = lang.startsWith("pt");
   const colors = { conservador: "#187556", base: "#006b9f", agresivo: "#9c4d12" };
+  const profileLabels = { conservador: "KV-2 Conservador", base: "KV-4 Base", agresivo: pt ? "KV-5 Agressivo" : "KV-5 Agresivo" };
+  const expandLabel = "Ampliar gráfico";
+  const closeLabel = pt ? "Fechar gráfico" : "Cerrar gráfico";
+  const helpText = pt ? "Passe o cursor, toque ou use as setas para ver os valores por data." : "Pasa el cursor, toca o usa las flechas para ver los valores por fecha.";
   const currency = new Intl.NumberFormat(lang, { maximumFractionDigits: 0 });
   const percent = new Intl.NumberFormat(lang, { maximumFractionDigits: 1, signDisplay: "exceptZero" });
   const formattedAmount = new Intl.NumberFormat(lang, { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" });
   const signedAmount = new Intl.NumberFormat(lang, { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: "exceptZero", useGrouping: "always" });
   const dateLabel = (options) => new Intl.DateTimeFormat(lang, { ...options, timeZone: "UTC" });
+  const pointDate = dateLabel({ dateStyle: "medium" });
   const valueLabel = (value, unit) => unit === "money"
     ? currency.format(value)
     : `${percent.format(value)}%`;
@@ -18,14 +24,51 @@
     return node;
   }
 
-  function plot(svg, getData) {
+  const chartHelp = document.createElement("p");
+  chartHelp.id = "chart-help";
+  chartHelp.className = "visually-hidden";
+  chartHelp.textContent = helpText;
+  document.body.append(chartHelp);
+
+  function plot(svg, getData, expanded = false) {
+    const surface = document.createElement("div");
+    surface.className = "chart-surface";
+    const tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    tooltip.hidden = true;
+    tooltip.setAttribute("aria-hidden", "true");
+    const chartStatus = document.createElement("div");
+    chartStatus.className = "visually-hidden";
+    chartStatus.setAttribute("role", "status");
+    svg.before(surface);
+    surface.append(svg, tooltip, chartStatus);
+    svg.setAttribute("tabindex", "0");
+    svg.setAttribute("aria-describedby", "chart-help");
+    svg.setAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight Home End");
+
+    if (!expanded) {
+      const trigger = document.createElement("button");
+      trigger.type = "button";
+      trigger.className = "control chart-expand";
+      trigger.title = expandLabel;
+      trigger.setAttribute("aria-label", `${expandLabel} · ${svg.getAttribute("aria-label")}`);
+      trigger.setAttribute("aria-haspopup", "dialog");
+      trigger.append(chartIcon("fullscreen"));
+      trigger.addEventListener("click", () => openChart(svg.getAttribute("aria-label"), getData, trigger));
+      surface.append(trigger);
+    }
+
+    let geometry;
+    let cursor;
+
     function draw() {
       const width = Math.round(svg.clientWidth);
       const height = Math.round(svg.clientHeight);
-      if (width < 100 || height < 90) return;
+      const data = getData();
+      if (!data || width < 100 || height < 90) return;
 
-      const { dates, lines, band, unit = "percent", years = false } = getData();
-      const right = 13;
+      const { dates, lines, band, unit = "percent", years = false } = data;
+      const right = expanded ? 13 : 48;
       const top = 13;
       const bottom = height - 24;
       const time = dates.map((date) => Date.parse(date));
@@ -82,11 +125,160 @@
           }));
         }
       }
+
+      const guides = element("g", { class: "chart-guides", visibility: "hidden" });
+      const vertical = element("line", { y1: top, y2: bottom });
+      const horizontal = element("line", { x1: left, x2: width - right });
+      const dots = lines.map((line) => element("circle", { r: 4, fill: line.color }));
+      guides.append(vertical, horizontal, ...dots);
+      svg.append(guides);
+
+      geometry = { width, time, dates, lines, unit, xs: dates.map((_, i) => x(i)), y, guides, vertical, horizontal, dots };
+      tooltip.hidden = true;
+      if (cursor) inspect(Math.min(cursor.index, dates.length - 1));
     }
 
+    function inspect(index, pointerY, announce = false) {
+      if (!geometry) return;
+      const { width, time, dates, lines, unit, xs, y, guides, vertical, horizontal, dots } = geometry;
+      let reference = Math.max(0, lines.findIndex((line) => !line.edge));
+      if (pointerY !== undefined) {
+        lines.forEach((line, i) => {
+          if (Math.abs(y(line.values[index]) - pointerY) < Math.abs(y(lines[reference].values[index]) - pointerY)) reference = i;
+        });
+      }
+      const px = xs[index];
+      const py = y(lines[reference].values[index]);
+      vertical.setAttribute("x1", px);
+      vertical.setAttribute("x2", px);
+      horizontal.setAttribute("y1", py);
+      horizontal.setAttribute("y2", py);
+      dots.forEach((dot, i) => {
+        dot.setAttribute("cx", px);
+        dot.setAttribute("cy", y(lines[i].values[index]));
+      });
+      guides.setAttribute("visibility", "visible");
+
+      if (cursor?.date !== dates[index] || tooltip.hidden) {
+        const date = document.createElement("strong");
+        date.textContent = pointDate.format(time[index]);
+        tooltip.replaceChildren(date);
+        lines.forEach((line) => {
+          const row = document.createElement("div");
+          const name = document.createElement("span");
+          const amount = document.createElement("span");
+          name.style.setProperty("--point-color", line.color);
+          name.textContent = line.label;
+          const value = line.values[index];
+          amount.textContent = unit === "money"
+            ? `${formattedAmount.format(value)} USDT (${signedAmount.format((value / line.values[0] - 1) * 100)}%)`
+            : `${signedAmount.format(value)}%`;
+          row.append(name, amount);
+          tooltip.append(row);
+        });
+      }
+      cursor = { index, date: dates[index] };
+      tooltip.hidden = false;
+      const tooltipWidth = tooltip.offsetWidth;
+      const preferred = px + tooltipWidth + 12 <= width ? px + 12 : px - tooltipWidth - 12;
+      tooltip.style.left = `${Math.max(0, Math.min(preferred, width - tooltipWidth))}px`;
+      if (announce) chartStatus.textContent = [...tooltip.children].map((row) =>
+        row.childElementCount ? [...row.children].map((cell) => cell.textContent).join(" ") : row.textContent,
+      ).join(". ");
+    }
+
+    function clear() {
+      cursor = undefined;
+      geometry?.guides.setAttribute("visibility", "hidden");
+      tooltip.hidden = true;
+    }
+
+    function followPointer(event) {
+      if (!geometry) return;
+      const rect = svg.getBoundingClientRect();
+      const px = event.clientX - rect.left;
+      const index = geometry.xs.reduce((best, x, i, values) =>
+        Math.abs(x - px) < Math.abs(values[best] - px) ? i : best, 0);
+      inspect(index, event.clientY - rect.top);
+    }
+
+    svg.addEventListener("pointermove", followPointer);
+    svg.addEventListener("pointerdown", followPointer);
+    svg.addEventListener("pointerleave", (event) => { if (event.pointerType === "mouse") clear(); });
+    svg.addEventListener("pointercancel", clear);
+    svg.addEventListener("blur", clear);
+    svg.addEventListener("focus", () => {
+      if (geometry && svg.matches(":focus-visible") && !cursor) inspect(geometry.dates.length - 1, undefined, true);
+    });
+    svg.addEventListener("keydown", (event) => {
+      if (!geometry || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key === "Escape" && !expanded && cursor) {
+        event.preventDefault();
+        clear();
+        return;
+      }
+      const last = geometry.dates.length - 1;
+      const index = cursor?.index ?? last;
+      const target = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: last };
+      if (!Object.hasOwn(target, event.key)) return;
+      event.preventDefault();
+      inspect(Math.max(0, Math.min(target[event.key], last)), undefined, true);
+    });
+
     new ResizeObserver(draw).observe(svg);
-    return draw;
+    return { draw, clear, inspectLast: () => { if (geometry) inspect(geometry.dates.length - 1); } };
   }
+
+  function chartIcon(name) {
+    const icon = element("svg", { "aria-hidden": "true" });
+    icon.append(element("use", { href: `#icon-${name}` }));
+    return icon;
+  }
+
+  const dialog = document.createElement("dialog");
+  dialog.className = "chart-dialog";
+  dialog.setAttribute("aria-labelledby", "chart-dialog-title");
+  const dialogHead = document.createElement("div");
+  dialogHead.className = "dialog-head";
+  const dialogTitle = document.createElement("h2");
+  dialogTitle.id = "chart-dialog-title";
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "control";
+  close.setAttribute("aria-label", closeLabel);
+  close.append(chartIcon("close"));
+  close.addEventListener("click", () => dialog.close());
+  const dialogChart = element("svg", { class: "chart", role: "img" });
+  const dialogHelp = document.createElement("p");
+  dialogHelp.id = "chart-dialog-help";
+  dialogHelp.textContent = helpText;
+  dialogHead.append(dialogTitle, close);
+  dialog.append(dialogHead, dialogChart, dialogHelp);
+  document.body.append(dialog);
+
+  let source;
+  let opener;
+  const enlarged = plot(dialogChart, () => source?.(), true);
+  dialogChart.setAttribute("aria-describedby", dialogHelp.id);
+
+  function openChart(title, getData, trigger) {
+    source = getData;
+    opener = trigger;
+    enlarged.clear();
+    dialogTitle.textContent = title;
+    dialogChart.setAttribute("aria-label", title);
+    dialog.showModal();
+    enlarged.draw();
+    dialogChart.focus({ preventScroll: true });
+    enlarged.inspectLast();
+  }
+
+  dialog.addEventListener("close", () => {
+    enlarged.clear();
+    source = undefined;
+    opener?.focus({ preventScroll: true });
+    opener = undefined;
+  });
 
   function simulationRun(returns, dates, capital, interval) {
     let savings = capital;
@@ -130,18 +322,18 @@
     return {
       dates: ["2025-12-31", ...simulation.dates],
       lines: [
-        { values: [initial, ...savingsLine], color: colors.base },
-        { values: [initial, ...rentLine], color: colors.conservador },
+        { values: [initial, ...savingsLine], color: colors.base, label: pt ? "Saldo em poupança" : "Saldo ahorro" },
+        { values: [initial, ...rentLine], color: colors.conservador, label: pt ? "Saldo em renda" : "Saldo renta" },
       ],
       unit: "money",
     };
   }
 
   let scenario = showSimulation();
-  const drawSimulation = plot(simChart, () => scenario);
+  const simulationPlot = plot(simChart, () => scenario);
   document.querySelector("#sim-controls").addEventListener("input", () => {
     scenario = showSimulation() ?? scenario;
-    drawSimulation();
+    simulationPlot.draw();
   });
 
   const periodInput = document.querySelector("#history-range");
@@ -167,7 +359,7 @@
       const [returns, drawdown] = document.querySelectorAll(`[data-history-profile="${key}"] td`);
       returns.textContent = valueLabel(values.at(-1), "percent");
       drawdown.textContent = valueLabel(worst * 100, "percent");
-      return { values, color };
+      return { values, color, label: profileLabels[key] };
     });
     return {
       dates: period === "daily" ? ["2025-12-31", ...simulation.dates] : ["2020-12-21", ...backtest.dates],
@@ -177,27 +369,27 @@
   }
 
   let historical = showHistory();
-  const drawHistory = plot(document.querySelector("#history-chart"), () => historical);
+  const historyPlot = plot(document.querySelector("#history-chart"), () => historical);
   periodInput.addEventListener("change", () => {
     historical = showHistory();
-    drawHistory();
+    historyPlot.draw();
   });
 
   plot(document.querySelector("#profile-chart"), () => ({
     dates: replay.dates,
     lines: [
-      { values: replay.lines["2"], color: colors.conservador },
-      { values: replay.lines["4"], color: colors.base },
-      { values: replay.lines["5"], color: colors.agresivo },
-      { values: cohort.days.map(([, value]) => value), color: "#303747", reference: true },
+      { values: replay.lines["2"], color: colors.conservador, label: profileLabels.conservador },
+      { values: replay.lines["4"], color: colors.base, label: profileLabels.base },
+      { values: replay.lines["5"], color: colors.agresivo, label: profileLabels.agresivo },
+      { values: cohort.days.map(([, value]) => value), color: "#303747", label: pt ? "Contas reais" : "Cuentas reales", reference: true },
     ],
   }));
 
   plot(document.querySelector("#cohort-chart"), () => ({
     dates: cohort.days.map(([date]) => date),
     lines: [
-      { values: cohort.days.map(([, value]) => value), color: colors.base },
-      { values: cohort.founder, color: colors.agresivo },
+      { values: cohort.days.map(([, value]) => value), color: colors.base, label: "Conjunto" },
+      { values: cohort.founder, color: colors.agresivo, label: pt ? "Conta do Mario" : "Cuenta de Mario" },
     ],
   }));
 
@@ -218,16 +410,16 @@
       dates,
       band: { low, high },
       lines: [
-        { values: low, color: colors.base, edge: true },
-        { values: high, color: colors.base, edge: true },
-        { values: mid, color: colors.base },
+        { values: low, color: colors.base, label: "P10", edge: true },
+        { values: mid, color: colors.base, label: "P50" },
+        { values: high, color: colors.base, label: "P90", edge: true },
       ],
     };
   }
   let forecast = outlookSeries();
-  const drawOutlook = plot(document.querySelector("#outlook-chart"), () => forecast);
+  const outlookPlot = plot(document.querySelector("#outlook-chart"), () => forecast);
   outlookProfile.addEventListener("change", () => {
     forecast = outlookSeries();
-    drawOutlook();
+    outlookPlot.draw();
   });
 })();

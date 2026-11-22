@@ -113,7 +113,7 @@
   });
 
   stage.addEventListener("touchstart", (event) => {
-    if (event.touches.length !== 1 || event.target.closest("a, button, input")) {
+    if (event.touches.length !== 1 || event.target.closest("a, button, input, select, .chart-surface")) {
       swipeStart = undefined;
       return;
     }
