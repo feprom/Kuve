@@ -11,8 +11,8 @@
   <meta property="og:image" content="https://ku-ve.us/finance-deck/kuve-finance.jpg">
   <link rel="canonical" href="https://ku-ve.us/Presentacao.html">
   <link rel="alternate" hreflang="es" href="https://ku-ve.us/Presentacion.html">
-  <link rel="stylesheet" href="finance-deck/deck.css?v=retiros-20261122">
-  <script src="finance-deck/deck.js?v=interactivo-20261122" defer></script>
+  <link rel="stylesheet" href="finance-deck/deck.css?v=movil-20261122">
+  <script src="finance-deck/deck.js?v=movil-20261122" defer></script>
   <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
   <script src="finance-deck/finance.js?v=retiros-20261122" defer></script>
   <title>DPF Autocustodiado | KUVE Finance</title>
@@ -36,7 +36,7 @@
         <button class="control fullscreen-control js-only" id="fullscreen" type="button" title="Tela cheia" aria-label="Tela cheia"
           data-enter="Tela cheia" data-exit="Sair da tela cheia" data-unavailable="Não foi possível abrir a tela cheia." hidden><svg aria-hidden="true"><use href="#icon-fullscreen"></use></svg><span class="wide-label">Tela cheia</span></button>
         <button class="control js-only" type="button" title="Compartilhar" aria-label="Compartilhar" data-share><svg aria-hidden="true"><use href="#icon-share"></use></svg><span class="wide-label">Compartilhar</span></button>
-        <a class="action" href="#slide-10" data-slide-link>Contato</a>
+        <a class="action desktop-contact" href="#slide-10" data-slide-link>Contato</a>
       </nav>
     </div>
   </header>
@@ -212,10 +212,10 @@
           <label>Capital-base (USDT)
             <input id="rent-capital" type="number" value="1000" min="1" max="100000000" step="0.01" inputmode="decimal" required>
           </label>
-          <label>Perfil do calendário <select id="rent-profile"><option value="2" selected>KV-2 Conservador</option><option value="4">KV-4 Base</option><option value="5">KV-5 Agressivo</option></select></label>
+          <label class="calendar-profile">Perfil do calendário <select id="rent-profile"><option value="2" selected>KV-2 Conservador</option><option value="4">KV-4 Base</option><option value="5">KV-5 Agressivo</option></select></label>
           <button class="action secondary plan-graph" id="rent-graph" type="button" aria-haspopup="dialog">Ver gráfico</button>
         </div>
-        <p class="note plan-cutoff" id="rent-cutoff" aria-live="polite">Ano completo de 2024.</p>
+        <p class="note plan-cutoff"><span id="rent-cutoff" aria-live="polite">Ano completo de 2024.</span> Valores antes da divisão, das taxas e do financiamento.</p>
         <div class="finance-split rent-tables">
           <table class="finance-table plan-table">
             <caption>Total sacado por perfil (USDT)</caption>
@@ -240,8 +240,9 @@
             </tfoot>
           </table>
         </div>
-        <p class="note"><strong>Condições de saque.</strong> Saca-se só o excedente sobre o capital inicial. O prazo máximo entre saques programados é de 12 meses.</p>
-        <p class="note">Antes da divisão dos lucros, taxas e financiamento. 0,00 = sem excedente. — = sem saque previsto. Pendente = por fechar.</p>
+        <p class="note"><strong>Saques.</strong> Só o titular pode sacar o excedente sobre seu capital inicial. Prazo máximo de 12 meses entre saques programados.</p>
+        <p class="note"><strong>Divisão.</strong> <strong>70% do lucro para o titular e 30% para a KUVE.</strong> O titular paga os 30% no saque. As partes assinam um contrato de prestação de serviços.</p>
+        <p class="note">0,00 = sem excedente. — = sem saque previsto. Pendente = por fechar.</p>
         <p class="note">Ouro, prata e WTI com preços de referência até jun. 2026. Queda horária sem saques.</p>
       </section>
       <section id="savings-panel" class="plan-panel" data-plan-panel="savings" aria-label="Projeção de poupança" hidden>
@@ -422,12 +423,13 @@
 
   <nav class="deck-nav js-only" aria-label="Navegação dos slides">
     <div class="nav-inner">
-      <button class="control" id="previous" type="button" aria-label="Anterior"><svg aria-hidden="true"><use href="#icon-prev"></use></svg><span class="wide-label">Anterior</span></button>
+      <button class="control" id="previous" type="button" aria-label="Anterior"><svg aria-hidden="true"><use href="#icon-prev"></use></svg><span class="nav-label">Anterior</span></button>
       <div class="position">
-        <button class="control count" id="slide-count" type="button" aria-label="Índice de slides" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#icon-index"></use></svg><span>01 / 12</span></button>
+        <button class="control count" id="slide-count" type="button" aria-label="Índice de slides" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#icon-index"></use></svg><span class="nav-position">01 / 12</span><span class="mobile-label">Índice</span></button>
         <progress class="progress" id="progress" value="1" max="12" aria-label="Progresso da apresentação"></progress>
       </div>
-      <button class="control" id="next" type="button" aria-label="Próximo"><span class="wide-label">Próximo</span><svg aria-hidden="true"><use href="#icon-next"></use></svg></button>
+      <button class="control" id="next" type="button" aria-label="Próximo"><span class="nav-label">Próximo</span><svg aria-hidden="true"><use href="#icon-next"></use></svg></button>
+      <a class="control mobile-contact" href="#slide-10" data-slide-link><svg aria-hidden="true"><use href="#icon-mail"></use></svg><span>Contato</span></a>
     </div>
   </nav>
   <p id="deck-status" class="visually-hidden" role="status"></p>

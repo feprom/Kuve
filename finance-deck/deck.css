@@ -194,6 +194,7 @@ h3 { margin: 0; font-size: clamp(1.12rem, 2.06cqw, 1.9rem); line-height: 1.12; l
 .nav-inner > :last-child { justify-self: end; }
 .position { display: flex; align-items: center; gap: 8px; }
 .count { font-family: var(--mono); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mobile-contact, .mobile-label { display: none; }
 .progress { width: clamp(58px, 10vw, 158px); height: 3px; border: none; color: var(--blue); appearance: none; background: var(--line); }
 .progress::-webkit-progress-bar { background: var(--line); }
 .progress::-webkit-progress-value { background: var(--blue); }
@@ -243,9 +244,73 @@ dialog::backdrop { background: #091d2cc9; }
   .enhanced .bar, .enhanced .nav-inner { width: min(100%, 1440px); padding-inline: 10px; }
 }
 @media (max-width: 899px), (max-height: 539px) {
+  .enhanced { --nav-height: 62px; scroll-padding-block: 65px calc(var(--nav-height) + env(safe-area-inset-bottom) + 12px); }
   .stage { margin-left: max(10px, env(safe-area-inset-left)); margin-right: max(10px, env(safe-area-inset-right)); }
-  .enhanced body { padding-bottom: calc(52px + env(safe-area-inset-bottom)); }
-  .enhanced .deck-nav { position: fixed; z-index: 2; inset: auto 0 0; border-top: 1px solid var(--line); background: var(--paper); }
+  .bar { min-height: 51px; }
+  .enhanced .desktop-contact { display: none; }
+  .actions [data-share] { border-color: var(--line); }
+  .enhanced body { padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom)); }
+  .enhanced .deck-nav {
+    position: fixed;
+    z-index: 3;
+    inset: auto 0 0;
+    padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
+    background: var(--navy);
+    box-shadow: 0 -3px 14px #0b233529;
+  }
+  .deck-nav .nav-inner {
+    min-height: var(--nav-height);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding-block: 7px;
+  }
+  .deck-nav .nav-inner > * { justify-self: stretch; }
+  .deck-nav .control {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 48px;
+    width: 100%;
+    gap: 3px;
+    padding: 3px 2px;
+    color: #f0f7fc;
+    font-size: .75rem;
+    line-height: 1.15;
+    touch-action: manipulation;
+  }
+  .deck-nav .control:focus-visible { outline-color: var(--cyan); outline-offset: 1px; }
+  .deck-nav .control:not(:disabled):hover, .deck-nav #next:not(:disabled) { background: #1d4156; }
+  .deck-nav #next svg { order: -1; }
+  .deck-nav .position { display: block; }
+  .deck-nav .count { display: grid; grid-template-columns: auto auto; }
+  .deck-nav .count svg { width: 17px; height: 17px; }
+  .deck-nav .nav-position { color: var(--cyan); font-size: .69rem; }
+  .deck-nav .mobile-label { display: inline; grid-column: 1 / -1; font-family: var(--sans); }
+  .deck-nav .progress {
+    position: absolute;
+    inset: 0 0 auto;
+    width: 100%;
+    height: 2px;
+    margin: 0;
+    color: var(--cyan);
+    background: #345469;
+  }
+  .deck-nav .progress::-webkit-progress-bar { background: #345469; }
+  .deck-nav .progress::-webkit-progress-value { background: var(--cyan); }
+  .deck-nav .progress::-moz-progress-bar { background: var(--cyan); }
+  #index-dialog, #share-dialog {
+    width: min(100%, 520px);
+    max-width: none;
+    max-height: min(80dvh, 660px);
+    margin: auto auto 0;
+    padding: 14px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    border-radius: 18px 18px 0 0;
+  }
+  #index-dialog .dialog-head {
+    position: sticky;
+    top: -14px;
+    padding-block: 4px;
+    background: var(--paper);
+  }
 }
 @media (max-width: 620px) {
   .slide { min-height: min(460px, 64svh); }
@@ -524,27 +589,47 @@ dialog::backdrop { background: #091d2cc9; }
   .finance-slide .finance-table th, .finance-slide .finance-table td { padding-block: 4px; }
   .finance-form input, .finance-form select { min-height: 36px; }
   .plan-switch .control { min-height: 32px; padding-block: 3px; }
+  #ahorro-renta { gap: 5px; padding-block: 6px; }
   .plan-panel { gap: 5px; }
+  #rent-panel { gap: 3px; }
   .plan-graph { min-height: 36px; }
-  .rent-tables .plan-table th, .rent-tables .plan-table td { padding-block: 3px; }
+  .rent-tables .plan-table th, .rent-tables .plan-table td { padding-block: 2.5px; }
   .rent-tables .plan-table:first-child th:first-child { width: 32%; }
 }
 
 @media (max-width: 620px) {
+  .slide { --small: .9rem; }
   .finance-split { grid-template-columns: minmax(0, 1fr); }
   .finance-slide .figure-box { order: 1; }
-  .finance-slide .figure-box .chart { height: 156px; }
+  .finance-slide .figure-box .chart { height: clamp(166px, 48cqw, 240px); }
+  .finance-slide .note { line-height: 1.43; }
   .finance-form input, .finance-form select { min-height: 44px; }
+  .finance-table { font-size: .84rem; }
+  .finance-table th, .finance-table td { overflow-wrap: anywhere; }
   .finance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .finance-stats.compact { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .finance-stats.compact { grid-template-columns: minmax(0, 1fr); }
+  .finance-stats.compact > div { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-items: center; gap: 8px; padding-block: 8px; }
+  .finance-stats.compact dd { order: -1; }
   .chart-expand { min-width: 44px; min-height: 44px; }
   .chart-dialog { padding: 12px; }
   .chart-dialog .dialog-head h2 { font-size: 1.12rem; }
   .app-intro, .market-regimes { grid-template-columns: minmax(0, 1fr); }
   .app-captures img { max-height: 210px; }
   .plan-switch .control, .plan-graph { min-height: 44px; }
+  .plan-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .plan-controls label { min-width: 0; }
+  .plan-controls input { max-width: none; }
+  .plan-controls .calendar-profile { grid-column: 1 / -1; }
+  .plan-controls .plan-graph { justify-self: start; }
   .plan-graph { margin-inline-start: 0; }
 }
 @media (max-width: 360px) {
   .finance-table { font-size: .77rem; }
+}
+@media (min-width: 375px) and (max-width: 620px) {
+  #rent-controls .calendar-profile { grid-column: auto; }
+  #rent-controls .plan-graph { justify-self: stretch; }
+}
+@media (hover: none) {
+  .slide :is(h1, h2)[tabindex="-1"]:focus { outline: none; }
 }

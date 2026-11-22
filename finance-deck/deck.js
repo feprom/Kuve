@@ -4,6 +4,7 @@
   const previous = document.querySelector("#previous");
   const next = document.querySelector("#next");
   const count = document.querySelector("#slide-count");
+  const navPosition = count.querySelector(".nav-position");
   const progress = document.querySelector("#progress");
   const language = document.querySelector(".language");
   const fullscreen = document.querySelector("#fullscreen");
@@ -57,7 +58,7 @@
 
     previous.disabled = index === 0;
     next.disabled = index === slides.length - 1;
-    count.querySelector("span").textContent = `${number(index + 1)} / ${number(slides.length)}`;
+    navPosition.textContent = `${number(index + 1)} / ${number(slides.length)}`;
     progress.max = slides.length;
     progress.value = index + 1;
     language.hash = slide.id;
