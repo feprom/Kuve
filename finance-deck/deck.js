@@ -13,11 +13,31 @@
   const shareAddress = document.querySelector("#share-address");
   const status = document.querySelector("#deck-status");
   const list = document.querySelector(".contents");
+  const analysisSlide = document.querySelector("#backtest");
+  const analysisButtons = [...analysisSlide.querySelectorAll("[data-analysis]")];
+  const analysisPanels = [...analysisSlide.querySelectorAll("[data-analysis-panel]")];
   const number = (value) => String(value).padStart(2, "0");
   // Old links used zero-based positions. Keep them pointed at the closest topic.
   const legacySlides = ["slide-1", "slide-2", "slide-6", "ahorro-renta", "slide-3", "backtest", "backtest", "slide-6", "slide-9"];
   let current = -1;
+  let activeAnalysis = "backtest";
   let swipeStart;
+
+  function selectAnalysis(id) {
+    activeAnalysis = id;
+    analysisButtons.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.analysis === id)));
+    analysisPanels.forEach(panel => { panel.hidden = panel.dataset.analysisPanel !== id; });
+  }
+
+  function currentId() {
+    const slide = slides[current];
+    return slide === analysisSlide ? activeAnalysis : slide.id;
+  }
+
+  function pushSlideHash() {
+    const hash = `#${currentId()}`;
+    if (window.location.hash !== hash) history.pushState(null, "", hash);
+  }
 
   function locationIndex() {
     const hash = window.location.hash;
@@ -48,7 +68,8 @@
     const changed = index !== current;
     const focused = document.activeElement;
     const slide = slides[index];
-    const heading = slide.querySelector("h1, h2");
+    if (slide === analysisSlide) selectAnalysis(!updateUrl && window.location.hash === "#cierre-2026" ? "cierre-2026" : "backtest");
+    const heading = slide.querySelector(slide === analysisSlide ? "[data-analysis-panel]:not([hidden]) h2" : "h1, h2");
     current = index;
     slides.forEach((item, itemIndex) => {
       item.hidden = itemIndex !== index;
@@ -61,11 +82,8 @@
     navPosition.textContent = `${number(index + 1)} / ${number(slides.length)}`;
     progress.max = slides.length;
     progress.value = index + 1;
-    language.hash = slide.id;
 
-    if (updateUrl && window.location.hash !== `#${slide.id}`) {
-      history.pushState(null, "", `#${slide.id}`);
-    }
+    if (updateUrl) pushSlideHash();
 
     if (changed) {
       window.scrollTo({ top: 0, behavior: "instant" });
@@ -79,6 +97,19 @@
 
   previous.addEventListener("click", () => show(current - 1, { updateUrl: true }));
   next.addEventListener("click", () => show(current + 1, { updateUrl: true }));
+  analysisButtons.forEach(button => button.addEventListener("click", () => {
+    selectAnalysis(button.dataset.analysis);
+    pushSlideHash();
+  }));
+  language.addEventListener("change", () => {
+    const selected = language.selectedOptions[0];
+    try {
+      localStorage.setItem("kuve-language", selected.lang.split("-")[0]);
+    } catch {
+      // The selected page can still open without storage.
+    }
+    window.location.assign(`${selected.value}${window.location.search}#${currentId()}`);
+  });
   count.addEventListener("click", () => {
     indexDialog.showModal();
     entries[current].focus();
@@ -154,8 +185,9 @@
 
   document.querySelectorAll("[data-share]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const url = new URL(window.location.href);
-      url.hash = slides[current].id;
+      const url = new URL("./", window.location.href);
+      url.search = window.location.search;
+      url.hash = currentId();
       if (navigator.share) {
         try {
           await navigator.share({ title: document.title, url: url.href });

@@ -1,12 +1,46 @@
 (() => {
   const { backtest, simulation, cohort, replay, rentals } = window.kuveFinanceHistory;
   const lang = document.documentElement.lang;
-  const pt = lang.startsWith("pt");
   const colors = { conservador: "#187556", base: "#006b9f", agresivo: "#9c4d12" };
-  const profileLabels = { conservador: "KV-2 Conservador", base: "KV-4 Base", agresivo: pt ? "KV-5 Agressivo" : "KV-5 Agresivo" };
-  const expandLabel = "Ampliar gráfico";
-  const closeLabel = pt ? "Fechar gráfico" : "Cerrar gráfico";
-  const helpText = pt ? "Passe o cursor, toque ou use as setas para ver os valores por data." : "Pasa el cursor, toca o usa las flechas para ver los valores por fecha.";
+  const labels = {
+    es: {
+      profiles: ["Conservador", "Base", "Agresivo"],
+      expand: "Ampliar gráfico", close: "Cerrar gráfico",
+      chartHelp: "Pasa el cursor, toca o usa las flechas para ver los valores por fecha.",
+      frequencies: ["Trimestral", "Semestral", "Anual"],
+      pending: "Pendiente", drawdown: "Caída máx.", yearTotal: "Total del año", partialTotal: "Total al corte",
+      fullYear: year => `Año completo ${year}.`, cutoff: "1 ene.–22 nov. 2026, 19:00 UTC.",
+      afterWithdrawals: "Saldo simulado después de los retiros",
+      contributed: "Total aportado", simulatedBalance: "Saldo simulado", savingsChart: "Crecimiento histórico del ahorro",
+      liveAccounts: "Cuentas reales", cohort: "Conjunto", founder: "Cuenta de Mario",
+    },
+    pt: {
+      profiles: ["Conservador", "Base", "Agressivo"],
+      expand: "Ampliar gráfico", close: "Fechar gráfico",
+      chartHelp: "Passe o cursor, toque ou use as setas para ver os valores por data.",
+      frequencies: ["Trimestral", "Semestral", "Anual"],
+      pending: "Pendente", drawdown: "Queda máx.", yearTotal: "Total do ano", partialTotal: "Total parcial",
+      fullYear: year => `Ano completo de ${year}.`, cutoff: "1º jan.–22 nov. 2026, 19h UTC.",
+      afterWithdrawals: "Saldo simulado após os saques",
+      contributed: "Total aportado", simulatedBalance: "Saldo simulado", savingsChart: "Crescimento histórico da poupança",
+      liveAccounts: "Contas reais", cohort: "Conjunto", founder: "Conta do Mario",
+    },
+    en: {
+      profiles: ["Conservative", "Base", "Aggressive"],
+      expand: "Enlarge chart", close: "Close chart",
+      chartHelp: "Hover, tap, or use the arrow keys to see values by date.",
+      frequencies: ["Quarterly", "Semiannual", "Annual"],
+      pending: "Pending", drawdown: "Drawdown", yearTotal: "Year total", partialTotal: "Total to date",
+      fullYear: year => `Full year ${year}.`, cutoff: "Jan 1–Nov 22, 2026, 19:00 UTC.",
+      afterWithdrawals: "Simulated balance after withdrawals",
+      contributed: "Total contributed", simulatedBalance: "Simulated balance", savingsChart: "Historical savings growth",
+      liveAccounts: "Live accounts", cohort: "Combined accounts", founder: "Mario’s account",
+    },
+  }[lang.split("-")[0]];
+  const profileIds = { conservador: "2", base: "4", agresivo: "5" };
+  const profileLabels = Object.fromEntries(Object.entries(profileIds).map(([profile, id], index) =>
+    [profile, `KV-${id} ${labels.profiles[index]}`],
+  ));
   const currency = new Intl.NumberFormat(lang, { maximumFractionDigits: 0 });
   const percent = new Intl.NumberFormat(lang, { maximumFractionDigits: 1, signDisplay: "exceptZero" });
   const formattedAmount = new Intl.NumberFormat(lang, { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" });
@@ -27,7 +61,7 @@
   const chartHelp = document.createElement("p");
   chartHelp.id = "chart-help";
   chartHelp.className = "visually-hidden";
-  chartHelp.textContent = helpText;
+  chartHelp.textContent = labels.chartHelp;
   document.body.append(chartHelp);
 
   function plot(svg, getData, expanded = false) {
@@ -50,8 +84,8 @@
       const trigger = document.createElement("button");
       trigger.type = "button";
       trigger.className = "control chart-expand";
-      trigger.title = expandLabel;
-      trigger.setAttribute("aria-label", `${expandLabel} · ${svg.getAttribute("aria-label")}`);
+      trigger.title = labels.expand;
+      trigger.setAttribute("aria-label", `${labels.expand} · ${svg.getAttribute("aria-label")}`);
       trigger.setAttribute("aria-haspopup", "dialog");
       trigger.append(chartIcon("fullscreen"));
       trigger.addEventListener("click", () => openChart(svg.getAttribute("aria-label"), getData, trigger));
@@ -245,13 +279,13 @@
   const close = document.createElement("button");
   close.type = "button";
   close.className = "control";
-  close.setAttribute("aria-label", closeLabel);
+  close.setAttribute("aria-label", labels.close);
   close.append(chartIcon("close"));
   close.addEventListener("click", () => dialog.close());
   const dialogChart = element("svg", { class: "chart", role: "img" });
   const dialogHelp = document.createElement("p");
   dialogHelp.id = "chart-dialog-help";
-  dialogHelp.textContent = helpText;
+  dialogHelp.textContent = labels.chartHelp;
   dialogHead.append(dialogTitle, close);
   dialog.append(dialogHead, dialogChart, dialogHelp);
   document.body.append(dialog);
@@ -298,14 +332,14 @@
   const rentCutoff = document.querySelector("#rent-cutoff");
   const rentCalendarProfile = document.querySelector("#rent-calendar-profile");
   const rentCalendarTotal = document.querySelector("#rent-calendar-total");
-  const incomeIds = ["2", "4", "5"];
+  const incomeIds = Object.values(profileIds);
   const frequencies = [
-    { months: 3, label: "Trimestral", color: colors.base },
-    { months: 6, label: "Semestral", color: colors.conservador },
-    { months: 12, label: "Anual", color: colors.agresivo },
+    { months: 3, label: labels.frequencies[0], color: colors.base },
+    { months: 6, label: labels.frequencies[1], color: colors.conservador },
+    { months: 12, label: labels.frequencies[2], color: colors.agresivo },
   ];
   const quarterEnds = [3, 6, 9, 12];
-  const pending = pt ? "Pendente" : "Pendiente";
+  const pending = labels.pending;
 
   function incomeRun(returns, closes, initial, interval) {
     let balance = initial;
@@ -337,7 +371,7 @@
       const row = plans.querySelector(`[data-rent-profile="${profile}"]`);
       const risk = annual.risk[profile];
       row.setAttribute("aria-current", String(profile === selectedProfile));
-      row.querySelector(".plan-risk").textContent = `${pt ? "Queda máx." : "Caída máx."} ${signedAmount.format(risk.dd)}%`;
+      row.querySelector(".plan-risk").textContent = `${labels.drawdown} ${signedAmount.format(risk.dd)}%`;
       const results = frequencies.map((frequency) => {
         const run = incomeRun(annual.returns[profile], annual.dates, initial, frequency.months);
         run.totalLabel = run.payments.size ? formattedAmount.format(run.totalCents / 100) : pending;
@@ -365,12 +399,8 @@
     });
 
     const year = rentYear.value;
-    rentCalendarTotal.querySelector("th").textContent = year === "2026"
-      ? (pt ? "Total parcial" : "Total al corte")
-      : (pt ? "Total do ano" : "Total del año");
-    rentCutoff.textContent = year === "2026"
-      ? (pt ? "1º jan.–22 nov. 2026, 19h UTC. Fechamentos de dezembro pendentes." : "1 ene.–22 nov. 2026, 19:00 UTC. Cierres de diciembre pendientes.")
-      : (pt ? `Ano completo de ${year}.` : `Año completo ${year}.`);
+    rentCalendarTotal.querySelector("th").textContent = year === "2026" ? labels.partialTotal : labels.yearTotal;
+    rentCutoff.textContent = year === "2026" ? labels.cutoff : labels.fullYear(year);
 
     return {
       dates: annual.dates,
@@ -386,7 +416,7 @@
   let income = updateIncome();
   rentControls.addEventListener("input", () => { income = updateIncome() ?? income; });
   rentChartButton.addEventListener("click", () => openChart(
-    pt ? "Saldo simulado após os saques" : "Saldo simulado después de los retiros",
+    labels.afterWithdrawals,
     () => income,
     rentChartButton,
   ));
@@ -394,35 +424,59 @@
   const savingsControls = document.querySelector("#savings-controls");
   const savingsCapital = document.querySelector("#savings-capital");
   const savingsMonthly = document.querySelector("#savings-monthly");
-  const savingsRate = document.querySelector("#savings-rate");
+  const savingsProfile = document.querySelector("#savings-profile");
   const savingsGraph = document.querySelector("#savings-graph");
+  const savingsRows = [...plans.querySelectorAll("[data-savings-year]")];
+  const savingsStart = "2020-12-21T00:00:00Z";
+  const rentalYears = Object.values(rentals);
+  // The first daily series opens at the same timestamp as the last archived weekly observation used here.
+  const dailyStart = rentalYears[0].dates[0].slice(0, 10);
+  const weeklyCloses = backtest.dates.filter(date => date <= dailyStart);
+  const savingsDates = [savingsStart, ...weeklyCloses, ...rentalYears.flatMap(year => year.dates.slice(1))];
+  const savingsTimestamps = savingsDates.map(date => Date.parse(date));
+  const savingsCheckpoints = savingsRows.map(row => {
+    const nextYear = Date.UTC(Number(row.dataset.savingsYear) + 1, 0, 1);
+    const close = savingsTimestamps.findIndex(timestamp => timestamp >= nextYear);
+    return close === -1 ? savingsDates.length - 1 : close;
+  });
 
   function updateSavings() {
-    const inputs = [savingsCapital, savingsMonthly, savingsRate];
+    const inputs = [savingsCapital, savingsMonthly];
     if (inputs.some((input) => !input.validity.valid)) return undefined;
-    const [initial, monthly, annualRate] = inputs.map((input) => input.valueAsNumber);
-    const monthlyFactor = (1 + annualRate / 100) ** (1 / 12);
+    const [initial, monthly] = inputs.map((input) => input.valueAsNumber);
+    const profile = savingsProfile.value;
+    const weekly = backtest.profiles[profile];
+    const factors = [
+      ...weeklyCloses.map((_, index) => weekly[index] / (weekly[index - 1] ?? 1)),
+      ...rentalYears.flatMap(year => year.returns[profileIds[profile]].map(rate => 1 + rate)),
+    ];
     let balance = initial;
+    let months = 0;
+    let nextContribution = Date.UTC(2021, 1, 1);
     const balances = [initial];
     const contributions = [initial];
-    const dates = ["2026-11-22T00:00:00Z"];
-    for (let month = 1; month <= 120; month++) {
-      balance = balance * monthlyFactor + monthly;
+    factors.forEach((factor, index) => {
+      balance *= factor;
+      while (savingsTimestamps[index + 1] >= nextContribution) {
+        balance += monthly;
+        months += 1;
+        nextContribution = Date.UTC(2021, months + 1, 1);
+      }
       balances.push(balance);
-      contributions.push(initial + monthly * month);
-      dates.push(new Date(Date.UTC(2026, 10 + month, 22)).toISOString());
-    }
-    plans.querySelectorAll("[data-savings-months]").forEach((row) => {
-      const month = Number(row.dataset.savingsMonths);
-      row.querySelector("[data-savings-contributed]").textContent = formattedAmount.format(contributions[month]);
-      row.querySelector("[data-savings-balance]").textContent = formattedAmount.format(balances[month]);
+      contributions.push(initial + monthly * months);
+    });
+    savingsRows.forEach((row, index) => {
+      const close = savingsCheckpoints[index];
+      row.querySelector("[data-savings-date]").textContent = pointDate.format(savingsTimestamps[close]);
+      row.querySelector("[data-savings-contributed]").textContent = formattedAmount.format(contributions[close]);
+      row.querySelector("[data-savings-balance]").textContent = formattedAmount.format(balances[close]);
     });
 
     return {
-      dates,
+      dates: savingsDates,
       lines: [
-        { values: contributions, label: "Total aportado", color: colors.conservador },
-        { values: balances, label: pt ? "Saldo projetado" : "Saldo proyectado", color: colors.base },
+        { values: contributions, label: labels.contributed, color: "#536b7c" },
+        { values: balances, label: labels.simulatedBalance, color: colors[profile] },
       ],
       unit: "money",
       years: true,
@@ -432,7 +486,7 @@
   let savings = updateSavings();
   savingsControls.addEventListener("input", () => { savings = updateSavings() ?? savings; });
   savingsGraph.addEventListener("click", () => openChart(
-    pt ? "Saldo e aportes projetados, a partir de novembro de 2026" : "Saldo y aportes proyectados, desde noviembre de 2026",
+    labels.savingsChart,
     () => savings,
     savingsGraph,
   ));
@@ -482,15 +536,15 @@
       { values: replay.lines["2"], color: colors.conservador, label: profileLabels.conservador },
       { values: replay.lines["4"], color: colors.base, label: profileLabels.base },
       { values: replay.lines["5"], color: colors.agresivo, label: profileLabels.agresivo },
-      { values: cohort.days.map(([, value]) => value), color: "#303747", label: pt ? "Contas reais" : "Cuentas reales", reference: true },
+      { values: cohort.days.map(([, value]) => value), color: "#303747", label: labels.liveAccounts, reference: true },
     ],
   }));
 
   plot(document.querySelector("#cohort-chart"), () => ({
     dates: cohort.days.map(([date]) => date),
     lines: [
-      { values: cohort.days.map(([, value]) => value), color: colors.base, label: "Conjunto" },
-      { values: cohort.founder, color: colors.agresivo, label: pt ? "Conta do Mario" : "Cuenta de Mario" },
+      { values: cohort.days.map(([, value]) => value), color: colors.base, label: labels.cohort },
+      { values: cohort.founder, color: colors.agresivo, label: labels.founder },
     ],
   }));
 

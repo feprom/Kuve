@@ -9,16 +9,52 @@
   <meta property="og:description" content="Conoce el bot de KUVE Finance, sus controles y cómo pedir más información.">
   <meta property="og:image" content="https://ku-ve.us/finance-deck/kuve-finance.jpg">
   <title>DPF Autocustodiado | KUVE Finance</title>
+  <link rel="alternate" hreflang="es" href="https://ku-ve.us/Presentacion.html">
+  <link rel="alternate" hreflang="en" href="https://ku-ve.us/Presentation.html">
+  <link rel="alternate" hreflang="pt-BR" href="https://ku-ve.us/Presentacao.html">
+  <link rel="alternate" hreflang="x-default" href="https://ku-ve.us/">
   <script>
-    const page = /^pt\b/i.test(navigator.language) ? "Presentacao.html" : "Presentacion.html";
-    location.replace(page + location.search + location.hash);
+    const pages = { es: "Presentacion.html", en: "Presentation.html", pt: "Presentacao.html" };
+    const portugueseZones = new Set([
+      "America/Noronha", "America/Belem", "America/Fortaleza", "America/Recife", "America/Araguaina",
+      "America/Maceio", "America/Bahia", "America/Sao_Paulo", "America/Campo_Grande", "America/Cuiaba",
+      "America/Santarem", "America/Porto_Velho", "America/Boa_Vista", "America/Manaus",
+      "America/Eirunepe", "America/Rio_Branco", "Europe/Lisbon", "Atlantic/Madeira", "Atlantic/Azores",
+      "Africa/Luanda", "Africa/Maputo", "Africa/Bissau", "Atlantic/Cape_Verde", "Africa/Sao_Tome", "Asia/Dili",
+    ]);
+    const spanishZones = new Set([
+      "America/Buenos_Aires", "America/Cordoba", "America/Jujuy", "America/Mendoza",
+      "America/La_Paz", "America/Santiago", "America/Coyhaique", "America/Punta_Arenas", "Pacific/Easter",
+      "America/Bogota", "America/Costa_Rica", "America/Havana", "America/Santo_Domingo",
+      "America/Guayaquil", "Pacific/Galapagos", "Europe/Madrid", "Africa/Ceuta", "Atlantic/Canary",
+      "Africa/Malabo", "America/Guatemala", "America/Tegucigalpa", "America/Mexico_City",
+      "America/Cancun", "America/Merida", "America/Monterrey", "America/Matamoros", "America/Chihuahua",
+      "America/Ciudad_Juarez", "America/Ojinaga", "America/Mazatlan", "America/Bahia_Banderas",
+      "America/Hermosillo", "America/Tijuana", "America/Managua", "America/Panama", "America/Lima",
+      "America/Puerto_Rico", "America/Asuncion", "America/El_Salvador", "America/Montevideo", "America/Caracas",
+    ]);
+    let preferredLanguage;
+    try {
+      preferredLanguage = localStorage.getItem("kuve-language");
+    } catch {
+      // Language selection still works with storage disabled.
+    }
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const regionalLanguage = portugueseZones.has(zone) || zone.startsWith("Brazil/") ? "pt"
+      : spanishZones.has(zone) || zone.startsWith("America/Argentina/") ? "es"
+      : undefined;
+    const browserLanguage = (navigator.languages?.length ? navigator.languages : [navigator.language])
+      .map(language => language?.split("-")[0].toLowerCase())
+      .find(language => Object.hasOwn(pages, language));
+    const language = Object.hasOwn(pages, preferredLanguage) ? preferredLanguage : regionalLanguage || browserLanguage || "en";
+    location.replace(pages[language] + location.search + location.hash);
   </script>
-  <noscript><meta http-equiv="refresh" content="0; url=Presentacion.html"></noscript>
 </head>
 <body>
   <main>
     <h1>KUVE Finance</h1>
     <p><a href="Presentacion.html">Presentación en español</a></p>
+    <p lang="en"><a href="Presentation.html">Presentation in English</a></p>
     <p lang="pt-BR"><a href="Presentacao.html">Apresentação em português</a></p>
   </main>
 </body>

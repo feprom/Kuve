@@ -11,10 +11,13 @@
   <meta property="og:image" content="https://ku-ve.us/finance-deck/kuve-finance.jpg">
   <link rel="canonical" href="https://ku-ve.us/Presentacao.html">
   <link rel="alternate" hreflang="es" href="https://ku-ve.us/Presentacion.html">
-  <link rel="stylesheet" href="finance-deck/deck.css?v=movil-20261122">
-  <script src="finance-deck/deck.js?v=movil-20261122" defer></script>
+  <link rel="alternate" hreflang="en" href="https://ku-ve.us/Presentation.html">
+  <link rel="alternate" hreflang="pt-BR" href="https://ku-ve.us/Presentacao.html">
+  <link rel="alternate" hreflang="x-default" href="https://ku-ve.us/">
+  <link rel="stylesheet" href="finance-deck/deck.css?v=locales-20261122">
+  <script src="finance-deck/deck.js?v=locales-20261122" defer></script>
   <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
-  <script src="finance-deck/finance.js?v=retiros-20261122" defer></script>
+  <script src="finance-deck/finance.js?v=ahorro-historico-20261122" defer></script>
   <title>DPF Autocustodiado | KUVE Finance</title>
 </head>
 <body>
@@ -32,7 +35,11 @@
     <div class="bar">
       <a class="brand" href="#slide-1" aria-label="KUVE Finance · Voltar à abertura" data-slide-link><strong>KUVE</strong><span>Finance</span></a>
       <nav class="actions" aria-label="Navegação dos slides">
-        <a class="control language" href="Presentacion.html" hreflang="es" aria-label="Ver em espanhol">ES</a>
+        <select class="control language js-only" aria-label="Idioma">
+          <option value="Presentacion.html" lang="es">Español</option>
+          <option value="Presentation.html" lang="en">English</option>
+          <option value="Presentacao.html" lang="pt-BR" selected>Português</option>
+        </select>
         <button class="control fullscreen-control js-only" id="fullscreen" type="button" title="Tela cheia" aria-label="Tela cheia"
           data-enter="Tela cheia" data-exit="Sair da tela cheia" data-unavailable="Não foi possível abrir a tela cheia." hidden><svg aria-hidden="true"><use href="#icon-fullscreen"></use></svg><span class="wide-label">Tela cheia</span></button>
         <button class="control js-only" type="button" title="Compartilhar" aria-label="Compartilhar" data-share><svg aria-hidden="true"><use href="#icon-share"></use></svg><span class="wide-label">Compartilhar</span></button>
@@ -241,11 +248,11 @@
           </table>
         </div>
         <p class="note"><strong>Saques.</strong> Só o titular pode sacar o excedente sobre seu capital inicial. Prazo máximo de 12 meses entre saques programados.</p>
-        <p class="note"><strong>Divisão.</strong> <strong>70% do lucro para o titular e 30% para a KUVE.</strong> O titular paga os 30% no saque. As partes assinam um contrato de prestação de serviços.</p>
+        <p class="note"><strong>Divisão.</strong> <strong>70% do lucro líquido para o titular e 30% para a KUVE.</strong> O titular paga os 30% no saque. As partes assinam um contrato de prestação de serviços.</p>
         <p class="note">0,00 = sem excedente. — = sem saque previsto. Pendente = por fechar.</p>
         <p class="note">Ouro, prata e WTI com preços de referência até jun. 2026. Queda horária sem saques.</p>
       </section>
-      <section id="savings-panel" class="plan-panel" data-plan-panel="savings" aria-label="Projeção de poupança" hidden>
+      <section id="savings-panel" class="plan-panel" data-plan-panel="savings" aria-label="Poupança com o backtest" hidden>
         <div class="finance-form plan-controls js-only" id="savings-controls">
           <label>Capital-base (USDT)
             <input id="savings-capital" type="number" value="10000" min="0" max="100000000" step="0.01" inputmode="decimal" required>
@@ -253,49 +260,84 @@
           <label>Aporte mensal (USDT)
             <input id="savings-monthly" type="number" value="100" min="0" max="1000000" step="0.01" inputmode="decimal" required>
           </label>
-          <label>Taxa anual suposta (%)
-            <input id="savings-rate" type="number" value="5" min="-99" max="100" step="0.01" inputmode="decimal" required>
-          </label>
+          <label class="calendar-profile">Perfil histórico <select id="savings-profile"><option value="conservador">KV-2 Conservador</option><option value="base">KV-4 Base</option><option value="agresivo">KV-5 Agressivo</option></select></label>
           <button class="action secondary plan-graph" id="savings-graph" type="button" aria-haspopup="dialog">Ver gráfico</button>
         </div>
         <table class="finance-table plan-table savings-table">
-          <caption>Projeção de saldo (USDT)</caption>
-          <thead><tr><th scope="col">Prazo</th><th scope="col" class="number">Capital total aportado</th><th scope="col" class="number">Saldo projetado</th></tr></thead>
+          <caption>Como a poupança teria crescido (USDT)</caption>
+          <thead><tr><th scope="col">Período e corte</th><th scope="col" class="number">Total aportado</th><th scope="col" class="number">Saldo simulado</th></tr></thead>
           <tbody>
-          <tr data-savings-months="24"><th scope="row">2 anos</th><td data-savings-contributed>12.400,00</td><td data-savings-balance>13.540,88</td></tr>
-          <tr data-savings-months="60"><th scope="row">5 anos</th><td data-savings-contributed>16.000,00</td><td data-savings-balance>19.544,19</td></tr>
-          <tr data-savings-months="120"><th scope="row">10 anos</th><td data-savings-contributed>22.000,00</td><td data-savings-balance>31.725,26</td></tr>
+            <tr data-savings-year="2021"><th scope="row">2021 <span class="plan-risk" data-savings-date>3 jan. 2022</span></th><td data-savings-contributed>11.200,00</td><td data-savings-balance>14.227,22</td></tr>
+            <tr data-savings-year="2022"><th scope="row">2022 <span class="plan-risk" data-savings-date>2 jan. 2023</span></th><td data-savings-contributed>12.400,00</td><td data-savings-balance>16.366,31</td></tr>
+            <tr data-savings-year="2023"><th scope="row">2023 <span class="plan-risk" data-savings-date>1 jan. 2024</span></th><td data-savings-contributed>13.600,00</td><td data-savings-balance>19.931,53</td></tr>
+            <tr data-savings-year="2024"><th scope="row">2024 <span class="plan-risk" data-savings-date>1 jan. 2025</span></th><td data-savings-contributed>14.800,00</td><td data-savings-balance>26.919,99</td></tr>
+            <tr data-savings-year="2025"><th scope="row">2025 <span class="plan-risk" data-savings-date>1 jan. 2026</span></th><td data-savings-contributed>16.000,00</td><td data-savings-balance>38.717,54</td></tr>
+            <tr data-savings-year="2026"><th scope="row">2026 <span class="plan-risk" data-savings-date>22 nov. 2026</span></th><td data-savings-contributed>17.000,00</td><td data-savings-balance>49.079,43</td></tr>
           </tbody>
         </table>
-        <p class="note">Exemplo ilustrativo com taxa anual efetiva constante e reinvestimento mensal. Aportes no fim de cada mês. O rendimento real varia e pode ser negativo.</p>
+        <p class="note">Início em 21 dez. 2020. Aportes no fim de cada mês desde jan. 2021. Na série semanal, usa-se o primeiro fechamento disponível.</p>
+        <p class="note">Backtest arquivado de 8 mercados até 2023 e simulação de 7 mercados desde 2024, esta última antes de taxas e financiamento. Sem saques ou divisão de lucros. Corte em 22 nov. 2026 às 19h UTC.</p>
       </section>
     </section>
-    <section class="slide finance-slide" id="backtest" data-topic="Backtest KV-9014">
-      <header class="headline">
-        <p class="kicker">Backtest KV-9014</p>
-        <h2 tabindex="-1">Resultados do teste histórico.</h2>
-        <p class="lead">A carteira de pesquisa usava oito mercados com peso inicial igual. A configuração atual opera sete.</p>
-      </header>
-      <div class="finance-split">
-        <figure class="figure-box">
-        <svg class="chart" id="history-chart" width="600" height="175" role="img" aria-label="Retorno acumulado simulado dos três perfis"></svg>
-        <figcaption>Rendimento acumulado sobre o capital inicial.</figcaption>
-      </figure>
-        <div>
-          <div class="finance-form js-only">
-            <label>Período simulado <select id="history-range"><option value="weekly" selected>Dez. 2020–jun. 2026</option><option value="daily">1º jan.–3 jul. 2026</option></select></label>
-          </div>
-          <table class="finance-table">
-          <thead><tr><th scope="col">Perfil</th><th scope="col" class="number">Retorno acum.</th><th scope="col" class="number">Queda máx.</th></tr></thead>
-          <tbody>
-            <tr data-history-profile="conservador"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#187556"></span>Conservador</th><td>+228,3%</td><td>−8,4%</td></tr>
-            <tr data-history-profile="base"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#006b9f"></span>Base</th><td>+600,0%</td><td>−11,9%</td></tr>
-            <tr data-history-profile="agresivo"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#9c4d12"></span>Agressivo</th><td>+1.451,6%</td><td>−14,8%</td></tr>
-          </tbody>
-        </table>
-        </div>
+    <section class="slide finance-slide" id="backtest" data-alias="cierre-2026" data-topic="Backtest e fim de 2026">
+      <div class="plan-switch js-only" role="group" aria-label="Resultados das simulações">
+        <button class="control" type="button" data-analysis="backtest" aria-controls="backtest-panel" aria-pressed="true">Backtest</button>
+        <button class="control" type="button" data-analysis="cierre-2026" aria-controls="cierre-2026" aria-pressed="false">Fim de 2026</button>
       </div>
-      <p class="note">Resultados hipotéticos do modelo arquivado. Incluem custo de negociação e financiamento modelados para essa carteira. Queda máxima observada na frequência selecionada. O desempenho futuro pode incluir perdas. <a href="https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/fraudadv_tradingsystem.html" target="_blank" rel="noopener">Riscos do backtest</a> · <a href="Metodologia.html" lang="es" target="_blank" rel="noopener">Metodología</a> · <a href="Carteras.html" lang="es" target="_blank" rel="noopener">Carteras</a></p>
+      <div class="plan-panel" id="backtest-panel" data-analysis-panel="backtest">
+        <header class="headline">
+          <p class="kicker">Backtest KV-9014</p>
+          <h2 tabindex="-1">Resultados do teste histórico.</h2>
+          <p class="lead">A carteira de pesquisa usava oito mercados com peso inicial igual. A configuração atual opera sete.</p>
+        </header>
+        <div class="finance-split">
+          <figure class="figure-box">
+          <svg class="chart" id="history-chart" width="600" height="175" role="img" aria-label="Retorno acumulado simulado dos três perfis"></svg>
+          <figcaption>Rendimento acumulado sobre o capital inicial.</figcaption>
+        </figure>
+          <div>
+            <div class="finance-form js-only">
+              <label>Período simulado <select id="history-range"><option value="weekly" selected>Dez. 2020–jun. 2026</option><option value="daily">1º jan.–3 jul. 2026</option></select></label>
+            </div>
+            <table class="finance-table">
+            <thead><tr><th scope="col">Perfil</th><th scope="col" class="number">Retorno acum.</th><th scope="col" class="number">Queda máx.</th></tr></thead>
+            <tbody>
+              <tr data-history-profile="conservador"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#187556"></span>Conservador</th><td>+228,3%</td><td>−8,4%</td></tr>
+              <tr data-history-profile="base"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#006b9f"></span>Base</th><td>+600,0%</td><td>−11,9%</td></tr>
+              <tr data-history-profile="agresivo"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#9c4d12"></span>Agressivo</th><td>+1.451,6%</td><td>−14,8%</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+        <p class="note">Resultados hipotéticos do modelo arquivado. Incluem custo de negociação e financiamento modelados para essa carteira. Queda máxima observada na frequência selecionada. O desempenho futuro pode incluir perdas. <a href="https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/fraudadv_tradingsystem.html" target="_blank" rel="noopener">Riscos do backtest</a> · <a href="Metodologia.html" lang="es" target="_blank" rel="noopener">Metodología</a> · <a href="Carteras.html" lang="es" target="_blank" rel="noopener">Carteras</a></p>
+      </div>
+      <div class="plan-panel" id="cierre-2026" data-analysis-panel="cierre-2026" hidden>
+        <header class="headline">
+          <p class="kicker">Cenários até 31 de dezembro</p>
+          <h2 tabindex="-1">O que pode mudar até o fim de 2026.</h2>
+          <p class="lead">Exercício sobre o saldo agregado de 25.473,37 USD equiv. em 22 de novembro. Supõe que esse saldo continua investido no perfil selecionado, sem aportes nem saques.</p>
+        </header>
+        <div class="finance-split">
+          <figure class="figure-box">
+          <svg class="chart" id="outlook-chart" width="600" height="175" role="img" aria-label="Faixa simulada entre percentil 10 e percentil 90 e mediana do retorno futuro"></svg>
+          <figcaption>Faixa dos percentis P10 a P90. A linha contínua mostra a mediana simulada P50.</figcaption>
+        </figure>
+          <div>
+            <div class="finance-form js-only">
+            <label>Perfil histórico <select id="outlook-profile"><option value="2">KV-2 · Conservador</option><option value="4">KV-4 · Base</option><option value="5" selected>KV-5 · Agressivo</option></select></label></div>
+            <table class="finance-table">
+            <thead><tr><th scope="col">Percentil</th><th scope="col" class="number">Retorno</th><th scope="col" class="number">Variação USD equiv.</th><th scope="col" class="number">Saldo USD equiv.</th></tr></thead>
+            <tbody>
+              <tr data-outlook="P10"><th scope="row">P10</th><td>−2,94%</td><td>−748,65</td><td>24.724,72</td></tr>
+              <tr data-outlook="P50"><th scope="row">P50</th><td>+5,70%</td><td>+1.452,08</td><td>26.925,45</td></tr>
+              <tr data-outlook="P90"><th scope="row">P90</th><td>+16,15%</td><td>+4.114,02</td><td>29.587,39</td></tr>
+            </tbody>
+          </table>
+            <p class="note">Variação do corte até o fim do ano.</p>
+          </div>
+        </div>
+        <p class="note">287 retornos semanais do backtest arquivado, combinados em blocos de quatro semanas para simular um horizonte de cerca de 6 semanas. O modelo histórico operava oito mercados e o bot opera sete. Os resultados reais podem ficar fora da faixa.</p>
+      </div>
     </section>
     <section class="slide finance-slide" id="slide-7" data-topic="Resultados reais">
       <header class="headline">
@@ -367,32 +409,19 @@
       <p class="note trade-impact">O encerramento de <strong>−7,90% do nocional</strong> (−66,05 USDT) representou aproximadamente <strong>−0,90% do patrimônio daquela conta</strong>, conforme o último registro horário anterior ao encerramento.</p>
       <p class="note">Dados do registro de ordens do bot. Cada percentual divide o PnL realizado pelo nocional no encerramento. As médias dão o mesmo peso a cada encerramento. Valores antes de taxas e financiamento.</p>
     </section>
-    <section class="slide finance-slide" id="cierre-2026" data-topic="Cenários até 31 de dezembro">
+    <section class="slide finance-slide" id="contrato" data-topic="Contrato de serviços">
       <header class="headline">
-        <p class="kicker">Cenários até 31 de dezembro</p>
-        <h2 tabindex="-1">O que pode mudar até o fim de 2026.</h2>
-        <p class="lead">Exercício sobre o saldo agregado de 25.473,37 USD equiv. em 22 de novembro. Supõe que esse saldo continua investido no perfil selecionado, sem aportes nem saques.</p>
+        <p class="kicker">Contrato de serviços</p>
+        <h2 tabindex="-1">Contrato com a KUVE Finance</h2>
+        <p class="lead">O investidor e a KUVE assinam um contrato de prestação de serviços. Os números e simulações desta apresentação servem de referência para definir os objetivos.</p>
       </header>
-      <div class="finance-split">
-        <figure class="figure-box">
-        <svg class="chart" id="outlook-chart" width="600" height="175" role="img" aria-label="Faixa simulada entre percentil 10 e percentil 90 e mediana do retorno futuro"></svg>
-        <figcaption>Faixa dos percentis P10 a P90. A linha contínua mostra a mediana simulada P50.</figcaption>
-      </figure>
-        <div>
-          <div class="finance-form js-only">
-          <label>Perfil histórico <select id="outlook-profile"><option value="2">KV-2 · Conservador</option><option value="4">KV-4 · Base</option><option value="5" selected>KV-5 · Agressivo</option></select></label></div>
-          <table class="finance-table">
-          <thead><tr><th scope="col">Percentil</th><th scope="col" class="number">Retorno</th><th scope="col" class="number">Variação USD equiv.</th><th scope="col" class="number">Saldo USD equiv.</th></tr></thead>
-          <tbody>
-            <tr data-outlook="P10"><th scope="row">P10</th><td>−2,94%</td><td>−748,65</td><td>24.724,72</td></tr>
-            <tr data-outlook="P50"><th scope="row">P50</th><td>+5,70%</td><td>+1.452,08</td><td>26.925,45</td></tr>
-            <tr data-outlook="P90"><th scope="row">P90</th><td>+16,15%</td><td>+4.114,02</td><td>29.587,39</td></tr>
-          </tbody>
-        </table>
-          <p class="note">Variação do corte até o fim do ano.</p>
-        </div>
-      </div>
-      <p class="note">287 retornos semanais do backtest arquivado, combinados em blocos de quatro semanas para simular um horizonte de cerca de 6 semanas. O modelo histórico operava oito mercados e o bot opera sete. Os resultados reais podem ficar fora da faixa.</p>
+      <dl class="finance-stats compact">
+        <div><dt>Custo operacional cobrado pela KUVE.</dt><dd>0 USDT</dd></div>
+        <div><dt>Do lucro líquido para o investidor.</dt><dd>70%</dd></div>
+        <div><dt>Do lucro líquido para a KUVE.</dt><dd>30%</dd></div>
+      </dl>
+      <p class="note"><strong>Lucro líquido.</strong> Excedente sobre o capital inicial após as taxas e o financiamento da corretora, quando aplicáveis. A divisão ocorre no saque do lucro.</p>
+      <p class="note"><strong>Pagamento no saque.</strong> Só o titular pode sacar da própria conta. No saque, ele paga à KUVE os 30% com o lucro líquido. O prazo máximo entre saques programados é de 12 meses.</p>
     </section>
     <section class="slide contact" id="slide-10" data-alias="slide-8 slide-9" data-topic="Contato">
       <div class="split">

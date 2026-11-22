@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f8fa">
+  <meta name="description" content="See how the KUVE Finance bot works, what controls it uses, and how to get in touch.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Self-Custodied DPF | KUVE Finance">
+  <meta property="og:description" content="See how the KUVE Finance bot works, what controls it uses, and how to get in touch.">
+  <meta property="og:image" content="https://ku-ve.us/finance-deck/kuve-finance.jpg">
+  <link rel="canonical" href="https://ku-ve.us/Presentation.html">
+  <link rel="alternate" hreflang="es" href="https://ku-ve.us/Presentacion.html">
+  <link rel="alternate" hreflang="en" href="https://ku-ve.us/Presentation.html">
+  <link rel="alternate" hreflang="pt-BR" href="https://ku-ve.us/Presentacao.html">
+  <link rel="alternate" hreflang="x-default" href="https://ku-ve.us/">
+  <link rel="stylesheet" href="finance-deck/deck.css?v=locales-20261122">
+  <script src="finance-deck/deck.js?v=locales-20261122" defer></script>
+  <script src="finance-deck/history-data.js?v=ahorro-renta-20261122" defer></script>
+  <script src="finance-deck/finance.js?v=ahorro-historico-20261122" defer></script>
+  <title>Self-Custodied DPF | KUVE Finance</title>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-next" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-prev" viewBox="0 0 24 24"><path d="M20 12H5m6 6-6-6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-share" viewBox="0 0 24 24"><path d="M12 16V3m-4 4 4-4 4 4M7 10H5v10h14V10h-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-fullscreen" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M9 20H4v-5m11 5h5v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-external" viewBox="0 0 24 24"><path d="M9 5H5v14h14v-4M13 5h6v6m0-6-9 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="icon-mail" viewBox="0 0 24 24"><path d="M4 6h16v12H4zm1 1 7 6 7-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-index" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  </svg>
+  <header class="chrome">
+    <div class="bar">
+      <a class="brand" href="#slide-1" aria-label="KUVE Finance · Back to cover" data-slide-link><strong>KUVE</strong><span>Finance</span></a>
+      <nav class="actions" aria-label="Slide navigation">
+        <select class="control language js-only" aria-label="Language">
+          <option value="Presentacion.html" lang="es">Español</option>
+          <option value="Presentation.html" lang="en" selected>English</option>
+          <option value="Presentacao.html" lang="pt-BR">Português</option>
+        </select>
+        <button class="control fullscreen-control js-only" id="fullscreen" type="button" title="Full screen" aria-label="Full screen"
+          data-enter="Full screen" data-exit="Exit full screen" data-unavailable="Full screen is unavailable." hidden><svg aria-hidden="true"><use href="#icon-fullscreen"></use></svg><span class="wide-label">Full screen</span></button>
+        <button class="control js-only" type="button" title="Share" aria-label="Share" data-share><svg aria-hidden="true"><use href="#icon-share"></use></svg><span class="wide-label">Share</span></button>
+        <a class="action desktop-contact" href="#slide-10" data-slide-link>Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="slide cover" id="slide-1" data-topic="KUVE Finance">
+      <div class="split">
+        <div>
+          <header class="headline">
+          <p class="kicker">KUVE Finance</p>
+          <h1 tabindex="-1">Self-Custodied DPF</h1>
+          <p class="cover-subtitle">Automated investing</p>
+          <p class="lead"><strong>+8.80% observed</strong> across seven live accounts from Aug 22 to Nov 22, 2026. Futures trade in your Binance account with exchange custody and variable returns.</p>
+          <p class="note">KUVE charges no fixed management fee. Exchange costs and service terms apply.</p>
+        </header>
+          <div class="button-row"><a class="action" href="#slide-2" data-slide-link>See how it works<svg aria-hidden="true"><use href="#icon-next"></use></svg></a></div>
+        </div>
+        <aside class="cover-panel">
+          <img src="finance-deck/kuve-finance.jpg" width="1008" height="501" alt="">
+          <p class="panel-label">Bot workflow</p>
+          <ol role="list">
+            <li><span aria-hidden="true">01</span>Candle close</li>
+            <li><span aria-hidden="true">02</span>Signal and exposure checks</li>
+            <li><span aria-hidden="true">03</span>Execution and logging</li>
+          </ol>
+        </aside>
+      </div>
+    </section>
+    <section class="slide finance-slide" id="slide-2" data-topic="The service">
+      <div class="app-intro">
+        <div>
+          <header class="headline">
+            <p class="kicker">The service</p>
+            <h2 tabindex="-1">Your account, your capital</h2>
+            <p class="lead">A bank term deposit pays an agreed rate. Self-Custodied DPF is the trade name of an automated futures strategy with variable returns and a risk of loss.</p>
+          </header>
+          <dl class="service-points">
+            <div><dt>Binance account</dt><dd>You control deposits and withdrawals. The exchange holds your balance and positions.</dd></div>
+            <div><dt>KUVE bot</dt><dd>The API key allows account queries and futures trading with withdrawals disabled.</dd></div>
+            <div><dt>Private app</dt><dd>View your balance, positions, and performance.</dd></div>
+          </dl>
+        </div>
+        <figure class="app-preview">
+          <div class="app-captures">
+          <a href="finance-deck/app-dashboard.webp" target="_blank" rel="noopener" aria-label="Open the overview screenshot">
+            <img src="finance-deck/app-dashboard.webp" width="780" height="1620" alt="KUVE Finance overview" loading="lazy">
+            <span>Overview</span>
+          </a>
+          <a href="finance-deck/app-performance.webp" target="_blank" rel="noopener" aria-label="Open the performance screenshot">
+            <img src="finance-deck/app-performance.webp" width="780" height="1620" alt="KUVE Finance performance" loading="lazy">
+            <span>Performance</span>
+          </a>
+          </div>
+          <figcaption>Spanish-language app screenshots with demo data.</figcaption>
+        </figure>
+      </div>
+    </section>
+    <section class="slide finance-slide" id="slide-3" data-topic="Markets">
+      <header class="headline">
+          <p class="kicker">Markets</p>
+          <h2 tabindex="-1">Seven markets across three asset classes</h2>
+          <p class="lead">The starting allocation is split into seven equal parts. The bot then adjusts each position for volatility and profile limits.</p>
+        </header>
+      <div class="allocation-strip" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="cards">
+        <div class="card"><h3>Crypto assets</h3><strong class="market-codes">BTC · SOL · BNB · TRX</strong><p>4/7 of the starting allocation.</p></div>
+<div class="card"><h3>Metals</h3><strong class="market-codes">XAU · XAG</strong><p>2/7 of the starting allocation.</p></div>
+<div class="card"><h3>Energy</h3><strong class="market-codes">CL</strong><p>1/7 of the starting allocation.</p></div>
+      </div>
+      <p class="note">The allocation aims to limit concentration and drawdowns. Multiple asset classes can fall at the same time.</p>
+    </section>
+    <section class="slide finance-slide" id="slide-4" data-topic="Trading logic">
+      <header class="headline">
+          <p class="kicker">Trading logic</p>
+          <h2 tabindex="-1">From candle close to order</h2>
+          <p class="lead">The bot follows four steps at each hourly candle close.</p>
+        </header>
+      <ol class="cards steps four" role="list">
+        <li class="card"><h3>Reads the market</h3><p>Looks for price breakouts and filters the trend with an exponential moving average.</p></li>
+        <li class="card"><h3>Sizes the position</h3><p>Sizes the position using observed volatility and profile limits.</p></li>
+        <li class="card"><h3>Trades or waits</h3><p>Based on the signal, it may go long, go short, or stay out.</p></li>
+        <li class="card"><h3>Manages the exit</h3><p>Exits using price-channel rules or a volatility-based trailing stop.</p></li>
+      </ol>
+      <div class="market-regimes">
+        <div class="market-regime">
+          <svg viewBox="0 0 80 40" aria-hidden="true"><path d="M2 22 12 16 21 24 31 17 40 22 49 15 58 23 68 19 78 22"/></svg>
+          <div><h3>Sideways market</h3><p>The bot may stay out when a breakout is unconfirmed. False breakouts can lead to losses.</p></div>
+        </div>
+        <div class="market-regime">
+          <svg viewBox="0 0 80 40" aria-hidden="true"><path d="M2 35 12 30 22 33 31 21 42 25 52 12 62 16 78 5"/></svg>
+          <div><h3>Trending market</h3><p>Looks for sustained moves in either direction while the signal holds.</p></div>
+        </div>
+      </div>
+    </section>
+    <section class="slide finance-slide" id="slide-5" data-topic="Risk profiles">
+      <header class="headline">
+        <p class="kicker">Risk profiles</p>
+        <h2 tabindex="-1">Same markets, different exposure</h2>
+        <p class="lead">KV-2 uses lower exposure. KV-4 takes larger positions on the same signal. KV-5 uses higher exposure and a different exit rule.</p>
+      </header>
+      <div class="finance-split">
+        <figure class="figure-box">
+          <svg class="chart" id="profile-chart" width="600" height="175" role="img" aria-label="Three simulated profiles and observed account performance"></svg>
+          <figcaption>Cumulative returns adjusted for cash flows. The dashed gray line shows live accounts.</figcaption>
+        </figure>
+        <div>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Profile</th><th scope="col" class="number">TWR</th><th scope="col" class="number">Max drawdown</th><th scope="col" class="number">P&amp;L¹</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#187556"></span>KV-2 · Conservative</th><td>+3.40%</td><td>−5.16%</td><td>+990.82</td></tr>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#006b9f"></span>KV-4 · Base</th><td>+5.34%</td><td>−7.87%</td><td>+1,572.15</td></tr>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#9c4d12"></span>KV-5 · Aggressive</th><td>+8.49%</td><td>−10.17%</td><td>+2,478.72</td></tr>
+            <tr><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#303747"></span>Live accounts</th><td>+8.15%</td><td>−5.62%</td><td>+2,213.80</td></tr>
+          </tbody>
+        </table>
+          <p class="note">¹ USD equivalent. Uses the same starting capital and recorded cash flows from Aug 22 to Nov 22, 2026.</p>
+        </div>
+      </div>
+      <p class="note">The three simulations replay 2,208 actual hourly candles across the seven current markets before fees and funding. Live accounts use a mix of profiles and reflect execution costs.</p>
+    </section>
+    <section class="slide finance-slide binance-slide" id="slide-6" data-alias="binance" data-topic="Binance and custody">
+      <header class="headline">
+        <p class="kicker">Binance and custody</p>
+        <h2 tabindex="-1">Binance in Bolivia</h2>
+        <p class="lead">Binance is a centralized digital asset exchange and custodian. KUVE places futures trades in your Binance account.</p>
+      </header>
+      <dl class="finance-stats compact">
+        <div>
+          <dt>Registered users in over 100 countries as of July 2026. <a href="https://www.prnewswire.co.uk/news-releases/binance-marks-nine-years-nearly-half-of-all-crypto-holders-use-binance-156-trillion-in-all-time-volume-and-a-growing-vision-beyond-crypto-302823760.html" target="_blank" rel="noopener">Binance announcement</a></dt>
+          <dd>Over 323M</dd>
+        </div>
+        <div>
+          <dt>Estimated value of the October 2026 theft. <a href="https://www.binance.com/en/blog/community/2389609752772696140" target="_blank" rel="noopener">Binance</a> · <a href="https://www.fbi.gov/investigate/cyber/alerts/2026/north-korea-responsible-for-6-billion-binance-attack/layout_view" target="_blank" rel="noopener">FBI</a></dt>
+          <dd>US$6.3B</dd>
+        </div>
+        <div>
+          <dt>Assets backed at least 1:1, according to Binance on Nov 12, 2026. <a href="https://www.binance.com/en/proof-of-reserves" target="_blank" rel="noopener">Proof of reserves</a></dt>
+          <dd>198 assets</dd>
+        </div>
+      </dl>
+      <div class="finance-split binance-panels">
+        <div class="binance-panel">
+          <h3>How Binance responded</h3>
+          <ol class="binance-timeline">
+            <li><time datetime="2026-10-29">Oct 29</time><span>Temporarily suspended withdrawals to contain the incident.</span></li>
+            <li><time datetime="2026-11-01">Nov 1</time><span>Reopened withdrawals in phases. <a href="https://www.binance.com/en-IN/square/post/384133235759486" target="_blank" rel="noopener">Announcement</a></span></li>
+            <li><time datetime="2026-11-13">Nov 13</time><span>Reported replacing 100% of affected assets and committed over $6.34 billion from its treasury, SAFU, and futures funds. <a href="https://www.binance.com/en/support/announcement/detail/0729ad59cde74700b4eaa96c33441e71" target="_blank" rel="noopener">Asset replacement</a></span></li>
+          </ol>
+        </div>
+        <div class="binance-panel">
+          <h3>Services in Bolivia</h3>
+          <p><strong>P2P in Bolivianos.</strong> Buy and sell crypto with other users in BOB. <a href="https://www.binance.com/es-LA/support/announcement/detail/abc70db36f2b4e2abf49d48ff7905d3a" target="_blank" rel="noopener">P2P market</a></p>
+          <p><strong>Binance Pay.</strong> Verified individuals in Bolivia can pay through interoperable QR codes, including Yape BO, Altoke, and Banco Económico. <a href="https://www.binance.com/es-LA/support/faq/detail/7a0dd7ef7a1e4699934f3aed13531372" target="_blank" rel="noopener">Payment guide</a></p>
+        </div>
+      </div>
+      <p class="note"><strong>Protection.</strong> SAFU is a private emergency fund. In Bolivia, eligible bank deposits are insured subject to legal limits and conditions. <a href="https://www.asfi.gob.bo/sites/default/files/2025-09/Ley%20N%C2%B0%20393%20de%20Servicios%20Financieros.pdf" target="_blank" rel="noopener">Law 393</a></p>
+      <p class="note"><strong>KUVE account.</strong> Disable withdrawals on your API key. You can revoke the key in Binance. Leverage can trigger liquidation. Volatility and liquidity affect stop execution. <a href="https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/understand_risks_of_virtual_currency.html" target="_blank" rel="noopener">Futures risks</a></p>
+    </section>
+    <section class="slide finance-slide" id="ahorro-renta" data-topic="Savings and withdrawals">
+      <header class="headline">
+        <p class="kicker">Savings and withdrawals</p>
+        <h2 tabindex="-1">Withdraw gains or build savings?</h2>
+      </header>
+      <div class="plan-switch js-only" role="group" aria-label="Options for using capital">
+        <button class="control" type="button" data-plan="rent" aria-controls="rent-panel" aria-pressed="true">Withdrawals</button>
+        <button class="control" type="button" data-plan="savings" aria-controls="savings-panel" aria-pressed="false">Savings</button>
+      </div>
+      <section id="rent-panel" class="plan-panel" data-plan-panel="rent" aria-label="Withdrawal simulation">
+        <div class="finance-form plan-controls js-only" id="rent-controls">
+          <label>Year
+            <select id="rent-year"><option value="2024" selected>2024</option><option value="2025">2025</option><option value="2026">2026</option></select>
+          </label>
+          <label>Starting capital (USDT)
+            <input id="rent-capital" type="number" value="1000" min="1" max="100000000" step="0.01" inputmode="decimal" required>
+          </label>
+          <label class="calendar-profile">Calendar profile <select id="rent-profile"><option value="2" selected>KV-2 Conservative</option><option value="4">KV-4 Base</option><option value="5">KV-5 Aggressive</option></select></label>
+          <button class="action secondary plan-graph" id="rent-graph" type="button" aria-haspopup="dialog">View chart</button>
+        </div>
+        <p class="note plan-cutoff"><span id="rent-cutoff" aria-live="polite">Full year 2024.</span> Amounts exclude profit sharing, trading fees, and funding.</p>
+        <div class="finance-split rent-tables">
+          <table class="finance-table plan-table">
+            <caption>Total withdrawals by profile (USDT)</caption>
+            <thead><tr><th scope="col">Profile</th><th scope="col" class="number">Quarterly</th><th scope="col" class="number">Semiannual</th><th scope="col" class="number">Annual</th></tr></thead>
+            <tbody>
+              <tr data-rent-profile="2" aria-current="true"><th scope="row"><strong>KV-2 Conservative</strong><span class="plan-risk">Drawdown −4.83%</span></th><td data-rent-period="3">256.66</td><td data-rent-period="6">265.29</td><td data-rent-period="12">281.58</td></tr>
+              <tr data-rent-profile="4" aria-current="false"><th scope="row"><strong>KV-4 Base</strong><span class="plan-risk">Drawdown −7.44%</span></th><td data-rent-period="3">401.49</td><td data-rent-period="6">422.47</td><td data-rent-period="12">463.96</td></tr>
+              <tr data-rent-profile="5" aria-current="false"><th scope="row"><strong>KV-5 Aggressive</strong><span class="plan-risk">Drawdown −10.01%</span></th><td data-rent-period="3">458.25</td><td data-rent-period="6">481.19</td><td data-rent-period="12">538.38</td></tr>
+            </tbody>
+          </table>
+          <table class="finance-table plan-table">
+            <caption>Withdrawals by date · <span id="rent-calendar-profile">KV-2 Conservative</span></caption>
+            <thead><tr><th scope="col">Date</th><th scope="col" class="number">Quarterly</th><th scope="col" class="number">Semiannual</th><th scope="col" class="number">Annual</th></tr></thead>
+            <tbody>
+              <tr data-rent-month="3"><th scope="row">Mar 31</th><td data-rent-period="3">59.76</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+              <tr data-rent-month="6"><th scope="row">Jun 30</th><td data-rent-period="3">34.72</td><td data-rent-period="6">96.55</td><td data-rent-period="12">—</td></tr>
+              <tr data-rent-month="9"><th scope="row">Sep 30</th><td data-rent-period="3">86.49</td><td data-rent-period="6">—</td><td data-rent-period="12">—</td></tr>
+              <tr data-rent-month="12"><th scope="row">Dec 31</th><td data-rent-period="3">75.69</td><td data-rent-period="6">168.74</td><td data-rent-period="12">281.58</td></tr>
+            </tbody>
+            <tfoot>
+              <tr id="rent-calendar-total"><th scope="row">Year total</th><td data-rent-period="3">256.66</td><td data-rent-period="6">265.29</td><td data-rent-period="12">281.58</td></tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="note"><strong>Withdrawals.</strong> Only the holder can withdraw gains above starting capital. Scheduled withdrawals are at most 12 months apart.</p>
+        <p class="note"><strong>Profit split.</strong> <strong>70% of the net profit goes to the account holder and 30% to KUVE.</strong> The account holder pays that 30% at withdrawal. Both parties sign a service agreement.</p>
+        <p class="note">0.00 = no surplus. — = no scheduled withdrawal. Pending = period still open.</p>
+        <p class="note">Gold, silver, and WTI use reference prices through Jun 2026. Hourly drawdown excludes withdrawals.</p>
+      </section>
+      <section id="savings-panel" class="plan-panel" data-plan-panel="savings" aria-label="Backtested savings" hidden>
+        <div class="finance-form plan-controls js-only" id="savings-controls">
+          <label>Starting capital (USDT)
+            <input id="savings-capital" type="number" value="10000" min="0" max="100000000" step="0.01" inputmode="decimal" required>
+          </label>
+          <label>Monthly contribution (USDT)
+            <input id="savings-monthly" type="number" value="100" min="0" max="1000000" step="0.01" inputmode="decimal" required>
+          </label>
+          <label class="calendar-profile">Historical profile <select id="savings-profile"><option value="conservador">KV-2 Conservative</option><option value="base">KV-4 Base</option><option value="agresivo">KV-5 Aggressive</option></select></label>
+          <button class="action secondary plan-graph" id="savings-graph" type="button" aria-haspopup="dialog">View chart</button>
+        </div>
+        <table class="finance-table plan-table savings-table">
+          <caption>How savings would have grown (USDT)</caption>
+          <thead><tr><th scope="col">Period and date</th><th scope="col" class="number">Total contributed</th><th scope="col" class="number">Simulated balance</th></tr></thead>
+          <tbody>
+            <tr data-savings-year="2021"><th scope="row">2021 <span class="plan-risk" data-savings-date>Jan 3, 2022</span></th><td data-savings-contributed>11,200.00</td><td data-savings-balance>14,227.22</td></tr>
+            <tr data-savings-year="2022"><th scope="row">2022 <span class="plan-risk" data-savings-date>Jan 2, 2023</span></th><td data-savings-contributed>12,400.00</td><td data-savings-balance>16,366.31</td></tr>
+            <tr data-savings-year="2023"><th scope="row">2023 <span class="plan-risk" data-savings-date>Jan 1, 2024</span></th><td data-savings-contributed>13,600.00</td><td data-savings-balance>19,931.53</td></tr>
+            <tr data-savings-year="2024"><th scope="row">2024 <span class="plan-risk" data-savings-date>Jan 1, 2025</span></th><td data-savings-contributed>14,800.00</td><td data-savings-balance>26,919.99</td></tr>
+            <tr data-savings-year="2025"><th scope="row">2025 <span class="plan-risk" data-savings-date>Jan 1, 2026</span></th><td data-savings-contributed>16,000.00</td><td data-savings-balance>38,717.54</td></tr>
+            <tr data-savings-year="2026"><th scope="row">2026 <span class="plan-risk" data-savings-date>Nov 22, 2026</span></th><td data-savings-contributed>17,000.00</td><td data-savings-balance>49,079.43</td></tr>
+          </tbody>
+        </table>
+        <p class="note">Starts Dec 21, 2020. Monthly contributions from Jan 2021 post at month-end or the first weekly close after it.</p>
+        <p class="note">Archived 8-market backtest through 2023. The 7-market simulation from 2024 excludes fees and funding. No withdrawals or profit sharing. Data through Nov 22, 2026 at 19:00 UTC.</p>
+      </section>
+    </section>
+    <section class="slide finance-slide" id="backtest" data-alias="cierre-2026" data-topic="Backtest and 2026 outlook">
+      <div class="plan-switch js-only" role="group" aria-label="Simulation results">
+        <button class="control" type="button" data-analysis="backtest" aria-controls="backtest-panel" aria-pressed="true">Backtest</button>
+        <button class="control" type="button" data-analysis="cierre-2026" aria-controls="cierre-2026" aria-pressed="false">2026 outlook</button>
+      </div>
+      <div class="plan-panel" id="backtest-panel" data-analysis-panel="backtest">
+        <header class="headline">
+          <p class="kicker">Backtest KV-9014</p>
+          <h2 tabindex="-1">Historical backtest results</h2>
+          <p class="lead">The research portfolio started with equal weights across eight markets. The current setup trades seven.</p>
+        </header>
+        <div class="finance-split">
+          <figure class="figure-box">
+          <svg class="chart" id="history-chart" width="600" height="175" role="img" aria-label="Simulated cumulative return for the three profiles"></svg>
+          <figcaption>Cumulative return on starting capital.</figcaption>
+        </figure>
+          <div>
+            <div class="finance-form js-only">
+              <label>Backtest period <select id="history-range"><option value="weekly" selected>Dec 2020–Jun 2026</option><option value="daily">Jan 1–Jul 3, 2026</option></select></label>
+            </div>
+            <table class="finance-table">
+            <thead><tr><th scope="col">Profile</th><th scope="col" class="number">Cumulative return</th><th scope="col" class="number">Max drawdown</th></tr></thead>
+            <tbody>
+              <tr data-history-profile="conservador"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#187556"></span>Conservative</th><td>+228.3%</td><td>−8.4%</td></tr>
+              <tr data-history-profile="base"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#006b9f"></span>Base</th><td>+600.0%</td><td>−11.9%</td></tr>
+              <tr data-history-profile="agresivo"><th scope="row"><span class="swatch" aria-hidden="true" style="--swatch:#9c4d12"></span>Aggressive</th><td>+1,451.6%</td><td>−14.8%</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+        <p class="note">Hypothetical results from the archived model, including modeled trading costs and funding. Maximum drawdown is measured at the selected frequency. Future results can include losses. <a href="https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/fraudadv_tradingsystem.html" target="_blank" rel="noopener">Backtest risks</a> · <a href="Metodologia.html" target="_blank" rel="noopener">Historical methodology (Spanish)</a> · <a href="Carteras.html" target="_blank" rel="noopener">Historical portfolios (Spanish)</a></p>
+      </div>
+      <div class="plan-panel" id="cierre-2026" data-analysis-panel="cierre-2026" hidden>
+        <header class="headline">
+          <p class="kicker">Scenarios through December 31</p>
+          <h2 tabindex="-1">What could change by year-end 2026</h2>
+          <p class="lead">Starts from the Nov 22 combined balance of 25,473.37 USD equivalent. Assumes the balance stays invested in the selected profile with no deposits or withdrawals.</p>
+        </header>
+        <div class="finance-split">
+          <figure class="figure-box">
+          <svg class="chart" id="outlook-chart" width="600" height="175" role="img" aria-label="Simulated future returns from the 10th to the 90th percentile, with the median"></svg>
+          <figcaption>Range from P10 to P90. The solid line shows the simulated median, P50.</figcaption>
+        </figure>
+          <div>
+            <div class="finance-form js-only">
+            <label>Historical profile <select id="outlook-profile"><option value="2">KV-2 · Conservative</option><option value="4">KV-4 · Base</option><option value="5" selected>KV-5 · Aggressive</option></select></label></div>
+            <table class="finance-table">
+            <thead><tr><th scope="col">Percentile</th><th scope="col" class="number">Return</th><th scope="col" class="number">P&amp;L (USD equiv.)</th><th scope="col" class="number">Balance (USD equiv.)</th></tr></thead>
+            <tbody>
+              <tr data-outlook="P10"><th scope="row">P10</th><td>−2.94%</td><td>−748.65</td><td>24,724.72</td></tr>
+              <tr data-outlook="P50"><th scope="row">P50</th><td>+5.70%</td><td>+1,452.08</td><td>26,925.45</td></tr>
+              <tr data-outlook="P90"><th scope="row">P90</th><td>+16.15%</td><td>+4,114.02</td><td>29,587.39</td></tr>
+            </tbody>
+          </table>
+            <p class="note">Change from the data cutoff to year-end.</p>
+          </div>
+        </div>
+        <p class="note">The simulation resamples 287 weekly returns from the archived backtest in four-week blocks to model about six weeks. The archived model traded eight markets. The bot trades seven. Actual results may fall outside the range.</p>
+      </div>
+    </section>
+    <section class="slide finance-slide" id="slide-7" data-topic="Live results">
+      <header class="headline">
+        <p class="kicker">Live results</p>
+        <h2 tabindex="-1">Three months across live accounts</h2>
+        <p class="lead">Aug 22 to Nov 22, 2026 at 19:00 UTC. Five live accounts at the start and two added during the period. Amounts are in USD equivalent.</p>
+      </header>
+      <dl class="finance-stats">
+        <div><dt>Starting balance</dt><dd>12,774.61</dd></div>
+        <div><dt>Net capital</dt><dd>23,259.56</dd></div>
+        <div><dt>Ending balance</dt><dd>25,473.37</dd></div>
+        <div><dt>Account P&amp;L</dt><dd><strong>+2,213.80</strong></dd></div>
+        <div><dt>Return on weighted capital</dt><dd><strong>+8.80%</strong></dd></div>
+      </dl>
+      <div class="finance-split">
+        <figure class="figure-box">
+        <svg class="chart" id="cohort-chart" width="600" height="175" role="img" aria-label="Cumulative live returns adjusted for deposits and withdrawals"></svg>
+        <figcaption><span class="finance-legend"><span style="--swatch:#006b9f">Combined +8.15%</span><span style="--swatch:#9c4d12">Mario’s account +9.83%</span></span> TWR · Combined maximum drawdown −5.62%</figcaption>
+      </figure>
+        <div>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Period</th><th scope="col" class="number">Return¹</th><th scope="col" class="number">USD equiv.</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Aug 22–Sep 22</th><td>+0.50%</td><td>+106.01</td></tr>
+            <tr><th scope="row">Sep 22–Oct 22</th><td>−1.81%</td><td>−504.68</td></tr>
+            <tr><th scope="row">Oct 22–Nov 22</th><td>+9.95%</td><td>+2,612.48</td></tr>
+          </tbody>
+        </table>
+          <p class="note">¹ Modified Dietz with time-weighted cash flows. The base was 25,158.39.</p>
+        </div>
+      </div>
+      <p class="note">KV-2 was the main profile through Nov 13 at 19:00 UTC. P&amp;L through that cutoff was −391.12, followed by +2,604.93.</p>
+      <p class="note">Net capital is the starting balance plus 16,040.81 in deposits minus 5,555.86 in withdrawals. P&amp;L is the ending balance minus net capital, including open positions. USDT transfers are valued at par. KUVE charges are excluded. <a href="finance-deck/conciliacion-2026-11-22.csv" download>Download reconciliation (CSV)</a></p>
+    </section>
+    <section class="slide finance-slide" id="operaciones" data-topic="Closed trades">
+      <header class="headline">
+        <p class="kicker">Closed trades</p>
+        <h2 tabindex="-1">Realized gains and losses</h2>
+        <p class="lead">816 trade closures with nonzero realized P&amp;L across seven accounts from Aug 22 to Nov 22, 2026.</p>
+      </header>
+      <div class="trade-bar" aria-hidden="true">
+        <span style="width:53.31%;background:#187556"></span>
+        <span style="width:46.69%;background:#9c4d12"></span>
+      </div>
+      <div class="finance-split trade-split">
+        <div class="trade-card" style="--result-color:#187556">
+          <p class="trade-title"><strong>53.31%</strong> Winning closures · 435</p>
+          <p>Gross P&amp;L <strong>+3,432.63 USDT</strong></p>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Per closure</th><th scope="col" class="number">Min</th><th scope="col" class="number">Avg</th><th scope="col" class="number">Max</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">% of notional</th><td>+0.01%</td><td>+4.82%</td><td>+19.97%</td></tr>
+            <tr><th scope="row">USDT</th><td>+0.004</td><td>+7.89</td><td>+83.24</td></tr>
+          </tbody>
+        </table>
+        </div>
+<div class="trade-card" style="--result-color:#9c4d12">
+          <p class="trade-title"><strong>46.69%</strong> Losing closures · 381</p>
+          <p>Gross P&amp;L <strong>−3,069.18 USDT</strong></p>
+          <table class="finance-table">
+          <thead><tr><th scope="col">Per closure</th><th scope="col" class="number">Largest loss</th><th scope="col" class="number">Avg</th><th scope="col" class="number">Smallest loss</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">% of notional</th><td>−7.90%</td><td>−2.16%</td><td>−0.03%</td></tr>
+            <tr><th scope="row">USDT</th><td>−72.52</td><td>−8.06</td><td>−0.01</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+      <p class="note trade-impact">The closure at <strong>−7.90% of notional</strong> (−66.05 USDT) represented about <strong>−0.90% of that account’s equity</strong>, based on the last hourly snapshot before the trade closed.</p>
+      <p class="note">Data comes from the bot’s order log. Each percentage is realized P&amp;L divided by closing notional. Averages weight each closure equally. Figures exclude fees and funding.</p>
+    </section>
+    <section class="slide finance-slide" id="contrato" data-topic="Service agreement">
+      <header class="headline">
+        <p class="kicker">Service agreement</p>
+        <h2 tabindex="-1">Agreement with KUVE Finance</h2>
+        <p class="lead">The investor and KUVE sign a service agreement. The figures and simulations in this presentation serve as a reference for setting objectives.</p>
+      </header>
+      <dl class="finance-stats compact">
+        <div><dt>Operating fee charged by KUVE.</dt><dd>0 USDT</dd></div>
+        <div><dt>Of net profit goes to the investor.</dt><dd>70%</dd></div>
+        <div><dt>Of net profit goes to KUVE.</dt><dd>30%</dd></div>
+      </dl>
+      <p class="note"><strong>Net profit.</strong> Surplus above starting capital after any applicable exchange fees and funding. Profit is shared at withdrawal.</p>
+      <p class="note"><strong>Payment at withdrawal.</strong> Only the account holder can withdraw from their account. At withdrawal, the holder pays KUVE its 30% from net profit. Scheduled withdrawals are at most 12 months apart.</p>
+    </section>
+    <section class="slide contact" id="slide-10" data-alias="slide-8 slide-9" data-topic="Contact">
+      <div class="split">
+        <div>
+          <header class="headline">
+          <p class="kicker">Contact</p>
+          <h2 tabindex="-1">Let’s talk about KUVE Finance.</h2>
+          <p class="lead">Get in touch to see how the bot works and ask about the profiles or access.</p>
+        </header>
+          <div class="button-row">
+            <a class="action" href="mailto:mario.mendizabal@ku-ve.com?subject=Question%20about%20KUVE%20Finance&amp;body=Hi%20Mario.%20I%E2%80%99d%20like%20to%20learn%20more%20about%20KUVE%20Finance.%20My%20question%20is%3A%0A%0A"><svg aria-hidden="true"><use href="#icon-mail"></use></svg>Request information</a>
+            <button class="action secondary js-only" type="button" data-share><svg aria-hidden="true"><use href="#icon-share"></use></svg>Share presentation</button>
+          </div>
+        </div>
+        <div class="contact-info">
+          <p class="kicker">Direct contact</p>
+          <h3>Mario Mendizabal</h3>
+          <p><a href="mailto:mario.mendizabal@ku-ve.com?subject=Question%20about%20KUVE%20Finance&amp;body=Hi%20Mario.%20I%E2%80%99d%20like%20to%20learn%20more%20about%20KUVE%20Finance.%20My%20question%20is%3A%0A%0A">mario.mendizabal@ku-ve.com</a></p>
+          <p class="note">Private access by invitation and PIN. Clients can link Telegram from their profile.</p>
+          <div class="button-row">
+            <a class="action secondary" href="https://finance.ku-ve.com/" target="_blank" rel="noopener">Client app</a>
+            <a class="action secondary" href="https://t.me/KuveAgent_bot" target="_blank" rel="noopener">Telegram bot</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="deck-nav js-only" aria-label="Slide navigation">
+    <div class="nav-inner">
+      <button class="control" id="previous" type="button" aria-label="Previous"><svg aria-hidden="true"><use href="#icon-prev"></use></svg><span class="nav-label">Previous</span></button>
+      <div class="position">
+        <button class="control count" id="slide-count" type="button" aria-label="Slide index" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#icon-index"></use></svg><span class="nav-position">01 / 12</span><span class="mobile-label">Contents</span></button>
+        <progress class="progress" id="progress" value="1" max="12" aria-label="Presentation progress"></progress>
+      </div>
+      <button class="control" id="next" type="button" aria-label="Next"><span class="nav-label">Next</span><svg aria-hidden="true"><use href="#icon-next"></use></svg></button>
+      <a class="control mobile-contact" href="#slide-10" data-slide-link><svg aria-hidden="true"><use href="#icon-mail"></use></svg><span>Contact</span></a>
+    </div>
+  </nav>
+  <p id="deck-status" class="visually-hidden" role="status"></p>
+
+  <dialog id="index-dialog" aria-labelledby="index-title">
+    <div class="dialog-head">
+      <h2 id="index-title">Slide index</h2>
+      <form method="dialog"><button class="control" type="submit" aria-label="Close"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button></form>
+    </div>
+    <ol class="contents" role="list"></ol>
+  </dialog>
+
+  <dialog id="share-dialog" aria-labelledby="share-title">
+    <div class="dialog-head">
+      <h2 id="share-title">Share this slide</h2>
+      <form method="dialog"><button class="control" type="submit" aria-label="Close"><svg aria-hidden="true"><use href="#icon-close"></use></svg></button></form>
+    </div>
+    <div class="share-form">
+      <label for="share-address">Slide link</label>
+      <input type="url" id="share-address" readonly>
+      <div class="button-row">
+        <button class="action" type="button" id="copy-link" data-copied="Link copied." data-manual="Select and copy the link.">Copy link</button>
+        <p id="copy-status" role="status"></p>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
